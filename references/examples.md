@@ -91,14 +91,14 @@ After:
 
 > Hi Priya,
 >
-> Thank you so much for your prompt response! The Harbour Room is available for the offsite on 14 March for up to 40 people, which is a testament to how early we started planning. We'll need to pay the €500 deposit by Friday.
+> Thank you so much for your prompt response! On the venue booking for the offsite: the Harbour Room is available on 14 March for up to 40 people, which is a testament to how early we started planning. We'll need to pay the €500 deposit by Friday.
 >
 > I'm more than happy to help if anything is unclear. Would you like me to set up a call with the venue to go through the catering options?
 >
 > Best,
 > Sam
 
-Notes: P4 ("I wanted to circle back on the venue booking" and "In terms of next steps" only announce; the offsite stays named in the next sentence). P21 and P8 call for restraint here: "Thank you so much", "prompt", "more than happy" and "a testament to" carry the writer's thanks, offer and judgment at a degree that "Thanks", "quick", "happy" and "shows" would lower, so they stay. Kept: the salutation and sign-off (letters had them before chatbots), every date and amount, and the question about a call in the writer's own form.
+Notes: P4 ("I wanted to circle back on" and "In terms of next steps" only announce; the topic they announce, the venue booking for the offsite, stays as the lead-in). P21 and P8 call for restraint here: "Thank you so much", "prompt", "more than happy" and "a testament to" carry the writer's thanks, offer and judgment at a degree that "Thanks", "quick", "happy" and "shows" would lower, so they stay. Kept: the salutation and sign-off (letters had them before chatbots), every date and amount, and the question about a call in the writer's own form.
 
 ## 5. Non-English text (French)
 
