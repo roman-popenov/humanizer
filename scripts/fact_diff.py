@@ -15,7 +15,9 @@ changed counts of negations and hedges.
 
 This is a partial check. It cannot verify claims, causes, attribution, the
 pairing of values with what they measure, or meaning in general, and exit 0
-does not establish that facts were preserved. Always finish with the manual
+does not establish that facts were preserved. A Markdown blockquote is read as
+prose, since it often holds the writer's own text, so a quotation without
+quotation marks is left to the manual check. Always finish with the manual
 claim-by-claim comparison. Exit status: 0 no strict differences found,
 1 strict differences found, 2 usage error.
 """
@@ -31,10 +33,13 @@ FENCE_OPEN = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 BACKTICKS = re.compile(r"`+")
 BLANK_LINE = re.compile(r"\n[ \t]*\n")
 URL = re.compile(r"https?://[^\s<>\"]+")
-# Trailing punctuation is not part of a URL (as in GitHub's autolinks), and a
-# closing bracket is part of it only when the URL opened one: a_(x)/old.
-URL_TRAILING = ".,;:!?*_~'\""
+# Trailing sentence punctuation is not part of a URL (as in GitHub's autolinks),
+# and a closing bracket is part of it only when the URL opened one: a_(x)/old.
+# A trailing * _ or ~ is dropped only when the same marker opened just before
+# the URL (**https://a.b/c**), so https://a.b/user_ keeps its underscore.
+URL_TRAILING = ".,;:!?'\""
 URL_CLOSERS = {")": "(", "]": "["}
+EMPHASIS_BEFORE = re.compile(r"[*_~]+$")
 # One-character quotes and long single-quoted passages count too: a changed
 # letter inside quotation marks is a changed quotation. A passage may run over
 # line breaks but not over a blank line. An apostrophe followed by a letter
@@ -133,7 +138,7 @@ def split_fences(text):
 
 
 def split_inline_code(text):
-    """Return the inline code spans, line breaks read as spaces, and the rest."""
+    """Return the inline code spans as written, and the text around them."""
     spans, kept, pos, i = [], [], 0, 0
     while True:
         m = BACKTICKS.search(text, i)
@@ -141,7 +146,7 @@ def split_inline_code(text):
             break
         close = re.compile(r"(?<!`)`{%d}(?!`)" % len(m.group(0))).search(text, m.end())
         if close and not BLANK_LINE.search(text, m.end(), close.start()):
-            spans.append(re.sub(r"[ \t]*\r?\n[ \t]*", " ", text[m.start():close.end()]))
+            spans.append(text[m.start():close.end()])
             kept += [text[pos:m.start()], " "]
             pos = i = close.end()
         else:
@@ -150,9 +155,9 @@ def split_inline_code(text):
     return spans, "".join(kept)
 
 
-def trim_url(url):
+def trim_url(url, emphasis=""):
     while url:
-        if url[-1] in URL_TRAILING:
+        if url[-1] in URL_TRAILING or url[-1] in emphasis:
             url = url[:-1]
         elif url[-1] in URL_CLOSERS and url.count(url[-1]) > url.count(URL_CLOSERS[url[-1]]):
             url = url[:-1]
@@ -168,16 +173,21 @@ def strip_protected(text):
     facts["code_blocks"] = Counter(blocks)
     spans, body = split_inline_code(body)
     facts["inline_code"] = Counter(spans)
-    facts["urls"] = Counter(trim_url(m.group(0)) for m in URL.finditer(body))
-    body = URL.sub(lambda m: " " + m.group(0)[len(trim_url(m.group(0))):], body)
-    return facts, body
+    urls, kept, pos = Counter(), [], 0
+    for m in URL.finditer(body):
+        before = EMPHASIS_BEFORE.search(body, max(0, m.start() - 3), m.start())
+        url = trim_url(m.group(0), before.group(0) if before else "")
+        urls[url] += 1
+        kept += [body[pos:m.start()], " ", m.group(0)[len(url):]]
+        pos = m.end()
+    facts["urls"] = urls
+    kept.append(body[pos:])
+    return facts, "".join(kept)
 
 
 def extract(text):
     facts, body = strip_protected(text)
-    # A quotation re-wrapped over lines is the same quotation.
-    facts["quotes"] = Counter(" ".join(next(g for g in m.groups() if g).split())
-                              for m in QUOTE.finditer(body))
+    facts["quotes"] = Counter(next(g for g in m.groups() if g) for m in QUOTE.finditer(body))
     facts["versions"] = Counter(m.group(0) for m in VERSION.finditer(body))
     body = VERSION.sub(" ", body)
     facts["currency"] = Counter(re.sub(r"\s", "", m.group(0)) for m in CURRENCY.finditer(body))
