@@ -86,7 +86,8 @@ LABELLED = re.compile(
     r"(?<![\w])([A-Za-z]\w{0,10})\s?(>=|<=|!=|[=<>≤≥≠≈])\s?(" + NUM + r")"
 )
 NUMBER = re.compile(r"(?<![\w.])" + NUM + r"(?:%|x\b)?")
-NAME = re.compile(r"\b[A-ZÀ-Þ][\wÀ-ɏ'’-]*(?:[ \t]+[A-ZÀ-Þ][\wÀ-ɏ'’-]*)*")
+# Capitals exclude the multiplication sign (U+00D7) that sits inside À-Þ.
+NAME = re.compile(r"\b[A-ZÀ-ÖØ-Þ][\w'’-]*(?:[ \t]+[A-ZÀ-ÖØ-Þ][\w'’-]*)*")
 FUNCTION_WORDS = set(
     "I I'm I've I'd I'll A An The This That These Those It Its It's He She We They You "
     "My Our Your His Her Their And But Or So If When While In On At For With As By To Of "
@@ -194,24 +195,28 @@ def extract(text):
     facts["number_words"] = Counter(m.group(0).lower() for m in NUMBER_WORDS.finditer(body))
     facts["negations"] = len(NEGATION.findall(body))
     facts["hedges"] = len(HEDGE.findall(body))
-    plain = re.sub(r"[*_]{1,3}", "", body)  # bold and italic markers hide sentence starts
+    # Bold and italic markers hide sentence starts; an underscore inside a word
+    # (IRDN_RAN) is not one, and removing it would invent a name.
+    plain = re.sub(r"(?<!\w)[*_]{1,3}|[*_]{1,3}(?!\w)", "", body)
     # A sentence-initial word is kept as a candidate name ("Alice approved it"):
     # dropping it hid real names. Ordinary words capitalized by position are
     # compared without case (see diff), so "Moving" is kept by "moving".
     names = Counter()
     for m in NAME.finditer(plain):
         words = m.group(0).split()
-        while words and words[0].rstrip(".,'’") in FUNCTION_WORDS:
+        while words and words[0].rstrip(".,'’-") in FUNCTION_WORDS:
             words = words[1:]
         if words:
-            names[" ".join(words).rstrip(".,'’")] += 1
+            names[" ".join(words).rstrip(".,'’-")] += 1
     facts["names"] = names
+    facts["prose"] = plain  # where names were read from, for the comparison
     return facts
 
 
 def has_phrase(text, phrase, ignore_case=False):
     flags = re.I if ignore_case else 0
-    return re.search(r"(?<![\w])" + re.escape(phrase) + r"(?![\w])", text, flags) is not None
+    words = r"\s+".join(re.escape(w) for w in phrase.split())  # any spacing or line break
+    return re.search(r"(?<![\w])" + words + r"(?![\w])", text, flags) is not None
 
 
 STRICT = ("code_blocks", "inline_code", "urls", "quotes", "versions", "currency",
@@ -236,12 +241,14 @@ def diff(original, rewrite):
     for kind in STRICT + REVIEW:
         if kind == "names":
             # A name counts as kept if it appears as a whole word anywhere in the
-            # rewrite. A one-word candidate is compared without case, since it may
-            # be an ordinary word capitalized only because it starts a sentence.
-            def kept(n, text):
-                return has_phrase(text, n, ignore_case=" " not in n)
-            lost = sorted(n for n in a[kind] if not kept(n, rewrite))
-            added = sorted(n for n in b[kind] if not kept(n, original))
+            # rewrite, as written or in the prose it was read from (removing code
+            # can join two words). A one-word candidate is compared without case,
+            # since it may be an ordinary word capitalized only because it starts
+            # a sentence.
+            def kept(n, text, prose):
+                return any(has_phrase(t, n, ignore_case=" " not in n) for t in (text, prose))
+            lost = sorted(n for n in a[kind] if not kept(n, rewrite, b["prose"]))
+            added = sorted(n for n in b[kind] if not kept(n, original, a["prose"]))
         elif kind in COUNTED:
             lost, added = count_changes(a[kind], b[kind])
         else:
@@ -265,10 +272,15 @@ def main(argv):
     if len(argv) != 3:
         print("Usage: python3 fact_diff.py ORIGINAL REWRITE", file=sys.stderr)
         return 2
-    with open(argv[1], encoding="utf-8") as f:
-        original = f.read()
-    with open(argv[2], encoding="utf-8") as f:
-        rewrite = f.read()
+    # An unreadable input is a usage error (2), never a strict difference (1).
+    try:
+        with open(argv[1], encoding="utf-8") as f:
+            original = f.read()
+        with open(argv[2], encoding="utf-8") as f:
+            rewrite = f.read()
+    except (OSError, UnicodeDecodeError) as error:
+        print(f"fact_diff: cannot read input: {error}", file=sys.stderr)
+        return 2
     report = diff(original, rewrite)
     if not report:
         print("fact_diff: no token differences found (claims still need the manual check)")
