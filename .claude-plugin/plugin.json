@@ -1,8 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "humanizer",
-  "description": "Rewrite AI-sounding text so it reads like the writer without changing what it says.",
-  "version": "3.1.0",
+  "description": "Rewrite text so it reads as written by its author, removing AI writing tells (not-X-but-Y contrasts, one-line closers, staged openers, forced triads, puffery, -ing riders, stock AI vocabulary, bold labels, chatbot wrappers) while keeping the writer's voice and every claim, number and name at its original strength.",
+  "version": "4.5.0",
   "author": {
     "name": "blader",
     "url": "https://github.com/blader"

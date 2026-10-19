@@ -10,7 +10,7 @@
     {
       "name": "humanizer",
       "source": "./",
-      "description": "Rewrite AI-sounding text so it reads like the writer without changing what it says.",
+      "description": "Rewrite text so it reads as written by its author, removing AI writing tells (not-X-but-Y contrasts, one-line closers, staged openers, forced triads, puffery, -ing riders, stock AI vocabulary, bold labels, chatbot wrappers) while keeping the writer's voice and every claim, number and name at its original strength.",
       "license": "MIT",
       "keywords": ["writing", "editing", "humanize", "prose", "style"]
     }
