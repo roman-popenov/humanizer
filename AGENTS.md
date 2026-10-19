@@ -4,7 +4,7 @@ This file explains how to change Humanizer without breaking its package or promp
 
 ## What this repo contains
 
-Humanizer is an agent skill written in Markdown, with one Python script. `SKILL.md` is the prompt that agents read, and it points to the files in `references/` and `scripts/`. The repo has no build step.
+Humanizer is an agent skill written in Markdown, with two Python scripts: the fact check the skill runs and the package validator. `SKILL.md` is the prompt that agents read, and it points to the files in `references/` and `scripts/`. The repo has no build step.
 
 Keep the skill portable. Do not write instructions that limit it to one or two agent tools.
 
