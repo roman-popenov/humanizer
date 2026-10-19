@@ -6,11 +6,12 @@ Usage: python3 fact_diff.py ORIGINAL REWRITE
 Strict checks (any difference prints FAIL and exits 1): code blocks, inline
 code, URLs, quoted passages (each compared by count, so a repeated span that
 changes or goes is caught), numbers exactly as written with their signs
-(-20, −5.3), version strings, number+unit pairs (36 MB, 120 ms, $14), labelled
-values (p = 0.003), number ranges (2019-2021), and bounds on numbers (over
-40,000, just over 40,000, about 36, up to 30). Review lines (exit status
-unaffected): number words, capitalized names (sentence-initial ones included),
-numbers that now appear fewer times, and changed counts of negations and hedges.
+(-20, −5.3, .05, 1e-3), version strings, number+unit pairs (36 MB, 30 km/h,
+-$14), labelled values (p = 0.003, x >= 5), number ranges (2019-2021), and
+bounds on numbers (over 40,000, just over 40,000, about 36, up to 30, <= 5).
+Review lines (exit status unaffected): number words, capitalized names
+(sentence-initial ones included), numbers that now appear fewer times, and
+changed counts of negations and hedges.
 
 This is a partial check. It cannot verify claims, causes, attribution, the
 pairing of values with what they measure, or meaning in general, and exit 0
@@ -56,26 +57,34 @@ UNITS = (
 )
 # An optional sign (ASCII hyphen-minus, Unicode minus or plus) is part of the
 # number, so -20 -> 20 is a changed value. The lookbehinds below keep the hyphen
-# in a range or date (2019-2021) from being read as a sign.
-NUM = r"[+−-]?\d+(?:[.,]\d+)*"
-CURRENCY = re.compile(r"[$€£¥₹]\s?" + NUM + r"(?:\s?(?:k|K|m|M|bn|B)\b)?")
-QUANTITY = re.compile(r"(?<![\w.])(" + NUM + r")\s?(" + UNITS + r")(?![\w])")
+# in a range or date (2019-2021) from being read as a sign. A leading-dot decimal
+# (.05) and an exponent (1.5e3, 1e-3) are part of the number.
+NUM = r"[+−-]?(?:\d+(?:[.,]\d+)*|\.\d+)(?:[eE][+−-]?\d+)?"
+# A sign before the symbol (-$14) is kept, but not a range's hyphen ($10-$20).
+CURRENCY = re.compile(r"(?:(?<![\w$€£¥₹])[+−-])?[$€£¥₹]\s?" + NUM + r"(?:\s?(?:k|K|m|M|bn|B)\b)?")
+# A rate keeps its denominator, so 30 km/h -> 30 km is a changed unit.
+QUANTITY = re.compile(
+    r"(?<![\w.])(" + NUM + r")\s?((?:" + UNITS + r")(?:/[A-Za-zµ°%]+)?)(?![\w])"
+)
 RANGE = re.compile(r"(?<![\w.])" + NUM + r"\s?[–—-]\s?" + NUM + r"(?![\w.])")
 BOUND = re.compile(
     r"\b(more than|greater than|less than|fewer than|at least|at most|no more than|"
     r"no fewer than|up to|over|under|above|below|exceeding|about|approximately|around|"
-    r"roughly|nearly|almost|just over|just under)\s+(" + NUM + r")|([~<>≤≥≈])\s?(" + NUM + r")",
+    r"roughly|nearly|almost|just over|just under)\s+(" + NUM + r")"
+    r"|(>=|<=|[~<>≤≥≈])\s?(" + NUM + r")",
     re.I,
 )
 BOUND_CLASS = {
     "more than": ">", "greater than": ">", "over": ">", "above": ">", "exceeding": ">",
     "just over": ">~", ">": ">", "less than": "<", "fewer than": "<", "under": "<",
     "below": "<", "just under": "<~", "<": "<", "at least": ">=", "no fewer than": ">=",
-    "≥": ">=", "at most": "<=", "no more than": "<=", "up to": "<=", "≤": "<=",
-    "about": "~", "approximately": "~", "around": "~", "roughly": "~", "~": "~", "≈": "~",
-    "nearly": "<~", "almost": "<~",
+    "≥": ">=", ">=": ">=", "at most": "<=", "no more than": "<=", "up to": "<=", "≤": "<=",
+    "<=": "<=", "about": "~", "approximately": "~", "around": "~", "roughly": "~", "~": "~",
+    "≈": "~", "nearly": "<~", "almost": "<~",
 }
-LABELLED = re.compile(r"(?<![\w])([A-Za-z]\w{0,10})\s?([=<>≤≥])\s?(" + NUM + r")")
+LABELLED = re.compile(
+    r"(?<![\w])([A-Za-z]\w{0,10})\s?(>=|<=|!=|[=<>≤≥≠≈])\s?(" + NUM + r")"
+)
 NUMBER = re.compile(r"(?<![\w.])" + NUM + r"(?:%|x\b)?")
 NAME = re.compile(r"\b[A-ZÀ-Þ][\wÀ-ɏ'’-]*(?:[ \t]+[A-ZÀ-Þ][\wÀ-ɏ'’-]*)*")
 FUNCTION_WORDS = set(
