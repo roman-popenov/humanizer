@@ -164,6 +164,7 @@ def split_inline_code(text):
 
 
 def trim_url(url, emphasis=""):
+    """Trim trailing punctuation, unmatched brackets, and supplied emphasis markers."""
     while url:
         if url[-1] in URL_TRAILING or url[-1] in emphasis:
             url = url[:-1]
@@ -194,6 +195,7 @@ def strip_protected(text):
 
 
 def extract(text):
+    """Return token counts, review counts, and prose for the fact comparison."""
     facts, body = strip_protected(text)
     facts["quotes"] = Counter(next(g for g in m.groups() if g) for m in QUOTE.finditer(body))
     facts["versions"] = Counter(m.group(0) for m in VERSION.finditer(body))
@@ -233,6 +235,7 @@ def extract(text):
 
 
 def has_phrase(text, phrase, ignore_case=False):
+    """Check for a whole phrase, allowing varied whitespace and optional case folding."""
     flags = re.I if ignore_case else 0
     words = r"\s+".join(re.escape(w) for w in phrase.split())  # any spacing or line break
     return re.search(r"(?<![\w])" + words + r"(?![\w])", text, flags) is not None
@@ -249,12 +252,14 @@ REVIEW = ("number_words", "names")
 def count_changes(a, b):
     """Spans the rewrite has fewer of (lost) or more of (added) than the original."""
     def show(t):
+        """Show a span with its counts when it appears in both texts."""
         return f"{t} ({a[t]} -> {b[t]})" if a[t] and b[t] else t
     return (sorted(show(t) for t in a if a[t] > b[t]),
             sorted(show(t) for t in b if b[t] > a[t]))
 
 
 def diff(original, rewrite):
+    """Return strict and review differences as lost and added items by kind."""
     a, b = extract(original), extract(rewrite)
     report = {}
     for kind in STRICT + REVIEW:
@@ -265,6 +270,7 @@ def diff(original, rewrite):
             # since it may be an ordinary word capitalized only because it starts
             # a sentence.
             def kept(n, text, prose):
+                """Check both texts for a name, ignoring case for a single word."""
                 return any(has_phrase(t, n, ignore_case=" " not in n) for t in (text, prose))
             lost = sorted(n for n in a[kind] if not kept(n, rewrite, b["prose"]))
             added = sorted(n for n in b[kind] if not kept(n, original, a["prose"]))
@@ -288,6 +294,7 @@ def diff(original, rewrite):
 
 
 def main(argv):
+    """Print token differences and return 0, 1 for strict changes, or 2 for bad input."""
     if len(argv) != 3:
         print("Usage: python3 fact_diff.py ORIGINAL REWRITE", file=sys.stderr)
         return 2
