@@ -28,14 +28,16 @@ import re
 import sys
 from collections import Counter
 
-# Code spans and fences follow CommonMark: a fence closes only on a line of the
-# same character at least as long as its opener, and an inline span closes only
-# on a backtick run of its opener's length. A fence inside a blockquote keeps its
-# > markers on every line and ends with the blockquote.
-FENCE_OPEN = re.compile(r"^((?: {0,3}>[ \t]?)*) {0,3}(`{3,}|~{3,})")
-# An indented code block is four columns past the enclosing list item's content
-# and cannot interrupt a paragraph, so it starts after a blank line.
-LIST_ITEM = re.compile(r"^( *)([-*+]|\d{1,9}[.)])( {1,4})(?=\S)")
+# Code follows CommonMark's block structure. Blockquotes (>) and list items hold
+# other blocks, and a line stays in an open one only if it carries its marker or
+# indentation (or lazily continues a paragraph). Code is a fenced block, whose
+# fence may sit inside a blockquote or list item and closes only on a line of the
+# same character at least as long as its opener, or an indented block, four
+# columns past its container, which cannot interrupt a paragraph. An inline span
+# closes only on a backtick run of its opener's length.
+QUOTE_MARKER = re.compile(r" {0,3}>[ \t]?")
+LIST_ITEM = re.compile(r"( {0,3})([-*+]|\d{1,9}[.)])( {1,4})(?=\S)")
+FENCE = re.compile(r" {0,3}(`{3,}|~{3,})")
 BLOCKQUOTE = re.compile(r"(?m)^ {0,3}(?:>[ \t]?)+")
 BACKTICKS = re.compile(r"`+")
 BLANK_LINE = re.compile(r"\n[ \t]*\n")
@@ -59,14 +61,15 @@ EMPHASIS_BEFORE = re.compile(r"[*_~]+$")
 # (don't) stays inside a single-quoted passage; one after a letter (students')
 # never opens one. A plural possessive stays inside the passage when the next
 # single mark in the paragraph closes rather than opens: 'the students' books
-# are here'. An abbreviated year or decade ('90s, '24) never opens a passage.
+# are here'. An abbreviated decade ('90s) never opens a passage; a two-digit
+# start ('12 users were fired') does, since it cannot be told from a year ('24).
 # The marks themselves are not compared, so the curly-to-straight fix of P20
 # passes.
 PARA = r"(?:(?!\n[ \t]*\n)[^{q}])"
 POSSESSIVE = r"(?<=s){q}(?=(?:(?!\n[ \t]*\n)[^{q}{o}])*[^\s{q}]{q}(?!\w))"
 CURLY_POSSESSIVE = POSSESSIVE.format(q="’", o="‘")
 STRAIGHT_POSSESSIVE = POSSESSIVE.format(q="'", o="'")
-YEAR = r"(?!\d{2}s?\b)"
+YEAR = r"(?!\d{2}s\b)"
 QUOTE = re.compile(
     r'"((?:' + PARA.format(q='"') + r")+)\""
     r"|“([^”]+)”"
@@ -77,9 +80,10 @@ QUOTE = re.compile(
     r"(?!" + STRAIGHT_POSSESSIVE + r")'(?!\w)"
 )
 # A v-prefixed version, or a three-part one with a pre-release or build suffix
-# (2.4.0-beta, 1.0.0+build.5); a bare 2.4.0 is compared as a number.
+# (2.4.0-beta, 1.0.0+build.5); a bare 2.4.0 is compared as a number. Either
+# form keeps its whole suffix (v2.4.0+build.7).
 VERSION = re.compile(
-    r"(?<![\w.])(?:[vV]\d+(?:\.\d+)*(?:[-.][A-Za-z0-9]+)*"
+    r"(?<![\w.])(?:[vV]\d+(?:\.\d+)*(?:[-.+][A-Za-z0-9]+)*"
     r"|\d+\.\d+\.\d+(?:[-+][0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)+)\b"
 )
 UNITS = (
@@ -108,10 +112,12 @@ BOUND_WORDS = (
     "no fewer than", "up to", "over", "under", "above", "below", "exceeding", "about", "approximately",
     "around", "roughly", "nearly", "almost", "just over", "just under",
 )
-# A bound phrase may wrap onto the next line (more\nthan 5).
+# A bound phrase may wrap onto the next line (more\nthan 5), and a bound may be
+# on a price (under €500, > $40).
+BOUNDED = r"((?:[$€£¥₹]\s?)?" + NUM + r")"
 BOUND = re.compile(
-    r"\b(" + "|".join(w.replace(" ", r"\s+") for w in BOUND_WORDS) + r")\s+(" + NUM + r")"
-    r"|(>=|<=|&gt;=|&lt;=|&ge;|&le;|&gt;|&lt;|[~<>≤≥≈])\s?(" + NUM + r")",
+    r"\b(" + "|".join(w.replace(" ", r"\s+") for w in BOUND_WORDS) + r")\s+" + BOUNDED +
+    r"|(>=|<=|&gt;=|&lt;=|&ge;|&le;|&gt;|&lt;|[~<>≤≥≈])\s?" + BOUNDED,
     re.I,
 )
 BOUND_CLASS = {
@@ -154,68 +160,91 @@ HEDGE = re.compile(
 )
 
 
-def split_fences(text):
-    """Return the fenced code blocks and the text outside them."""
-    blocks, kept, block, closer, quoted = [], [], [], None, None
-    for line in text.splitlines(keepends=True):
-        if closer is not None:
-            q = quoted.match(line)
-            if q is None:  # the blockquote ended, and the fence with it
-                blocks.append("".join(block))
-                kept.append("\n")
-                closer = None
-            else:
-                block.append(line)
-                if closer.match(line[q.end():].rstrip("\r\n")):
-                    blocks.append("".join(block))
-                    kept.append("\n")
-                    closer = None
+def indent_of(line):
+    """Count the leading spaces of a line whose tabs are already expanded."""
+    return len(line) - len(line.lstrip(" "))
+
+
+def split_code(text):
+    """Return the code blocks (fenced or indented) as written, and the text outside them."""
+    blocks, kept, blanks = [], [], []
+    containers = []  # ">" for a blockquote, or a list item's content indent; outermost first
+    code = None      # the open code block: [lines, container depth, closing fence or None]
+    para = False     # the last line was paragraph text, which a lazy line may continue
+    for raw in text.splitlines(keepends=True):
+        rest = raw.rstrip("\r\n").expandtabs(4)
+        matched = 0
+        for container in containers:
+            if container == ">":
+                m = QUOTE_MARKER.match(rest)
+                if m is None:
+                    break
+                rest = rest[m.end():]
+            elif rest.strip():  # a blank line stays in a list item
+                if indent_of(rest) < container:
+                    break
+                rest = rest[container:]
+            matched += 1
+        if matched < len(containers):
+            starts_block = QUOTE_MARKER.match(rest) or FENCE.match(rest) or LIST_ITEM.match(rest)
+            if para and rest.strip() and not starts_block:
+                kept.append(raw)  # a lazy continuation keeps every container open
                 continue
-        m = FENCE_OPEN.match(line)
-        # A backtick fence's info string cannot contain a backtick.
-        if m and not (m.group(2)[0] == "`" and "`" in line[m.end():]):
-            closer = re.compile(r"^ {0,3}" + re.escape(m.group(2)[0]) + "{%d,}[ \t]*$" % len(m.group(2)))
-            quoted = re.compile(r"(?: {0,3}>[ \t]?){%d}" % m.group(1).count(">"))
-            block = [line]
-        else:
-            kept.append(line)
-    if closer is not None:  # an unclosed fence runs to the end of the text
-        blocks.append("".join(block))
-    return blocks, "".join(kept)
-
-
-def split_indented(text):
-    """Return the indented code blocks and the text outside them."""
-    blocks, kept, block, blanks = [], [], [], []
-    lists, after_blank = [], True  # content indents of the open list items, innermost last
-    for line in text.splitlines(keepends=True):
-        if not line.strip():
-            # A blank line belongs to a block only if the block continues after it.
-            (blanks if block else kept).append(line)
-            after_blank = True
+            del containers[matched:]
+            para = False
+        if code and code[1] > len(containers):  # its container closed, so it did too
+            blocks.append("".join(code[0]))
+            kept += ["\n"] + blanks
+            code, blanks = None, []
+        if code and code[2]:
+            code[0].append(raw)
+            if code[2].match(rest):
+                blocks.append("".join(code[0]))
+                kept.append("\n")
+                code = None
             continue
-        indent = len(line[:len(line) - len(line.lstrip(" \t"))].expandtabs(4))
-        base = lists[-1] if lists else 0
-        if indent >= base + 4 and (block or after_blank):
-            block += blanks + [line]
-            blanks = []
-        else:
-            if block:
-                blocks.append("".join(block))
-                kept += ["\n"] + blanks
-                block, blanks = [], []
-            # Four columns past the content is a continuation line, not an item.
-            m = LIST_ITEM.match(line)
-            item = m is not None and len(m.group(1)) < base + 4
-            if item or after_blank:  # close the items this line sits outside
-                while lists and indent < lists[-1]:
-                    lists.pop()
-            if item:
-                lists.append(len(m.group(1)) + len(m.group(2)) + len(m.group(3)))
-            kept.append(line)
-        after_blank = False
-    if block:
-        blocks.append("".join(block))
+        # New containers; four columns in is code or paragraph text, never a marker.
+        while indent_of(rest) < 4:
+            m = QUOTE_MARKER.match(rest)
+            if m:
+                containers.append(">")
+                rest, para = rest[m.end():], False
+                continue
+            m = LIST_ITEM.match(rest)
+            # Only a bullet or a list starting at 1 can interrupt a paragraph.
+            if m and (not para or m.group(2) in "-*+" or m.group(2)[:-1] == "1"):
+                containers.append(len(m.group(0)))
+                rest, para = rest[m.end():], False
+                continue
+            break
+        if code:  # an open indented block
+            if not rest.strip():
+                blanks.append(raw)  # kept only if the block continues after it
+                continue
+            if indent_of(rest) >= 4 and code[1] == len(containers):
+                code[0] += blanks + [raw]
+                blanks = []
+                continue
+            blocks.append("".join(code[0]))
+            kept += ["\n"] + blanks
+            code, blanks = None, []
+        if not rest.strip():
+            kept.append(raw)
+            para = False
+            continue
+        if indent_of(rest) >= 4 and not para:
+            code = [[raw], len(containers), None]
+            continue
+        m = FENCE.match(rest)
+        # A backtick fence's info string cannot contain a backtick.
+        if m and not (m.group(1)[0] == "`" and "`" in rest[m.end():]):
+            closer = re.compile(r" {0,3}" + re.escape(m.group(1)[0]) + "{%d,}[ \t]*$" % len(m.group(1)))
+            code, para = [[raw], len(containers), closer], False
+            continue
+        kept.append(raw)
+        para = True
+    if code:  # an unclosed block runs to the end of the text
+        blocks.append("".join(code[0]))
         kept += ["\n"] + blanks
     return blocks, "".join(kept)
 
@@ -252,26 +281,29 @@ def trim_url(url, emphasis=""):
 
 def link_target(url):
     """Cut a Markdown link target at the parenthesis that closes the link."""
-    depth = 0
-    for i, c in enumerate(url):
+    depth, i = 0, 0
+    while i < len(url):
+        c = url[i]
+        if c == "\\":  # an escaped character (a\)b) is part of the target
+            i += 2
+            continue
         if c == "(":
             depth += 1
         elif c == ")":
             if depth == 0:
                 return url[:i]
             depth -= 1
+        i += 1
     return url
 
 
 def strip_protected(text):
     """Split a text into its protected spans and the prose left over."""
     facts = {}
-    blocks, body = split_fences(text)
-    # Blockquote markers go before indented code is read, so code inside a
-    # blockquote is found, and after fences, so code lines starting with > stay.
-    indented, body = split_indented(BLOCKQUOTE.sub("", body))
-    facts["code_blocks"] = Counter(blocks + indented)
-    spans, body = split_inline_code(body)
+    blocks, body = split_code(text)
+    facts["code_blocks"] = Counter(blocks)
+    # Blockquote markers in the prose are dropped (code keeps its own).
+    spans, body = split_inline_code(BLOCKQUOTE.sub("", body))
     facts["inline_code"] = Counter(spans)
     # The search resumes where each URL ends, so a match cut short (two adjacent
     # links) still finds the URL after the cut.
@@ -308,6 +340,7 @@ def extract(text):
     bounds = Counter()
     for m in BOUND.finditer(body):
         word, num = (m.group(1), m.group(2)) if m.group(1) else (m.group(3), m.group(4))
+        num = re.sub(r"\s", "", num)  # a price may be written $ 40
         bounds[f"{BOUND_CLASS[' '.join(word.lower().split())]} {num}"] += 1
     facts["bounds"] = bounds
     # Numbers are compared exactly as written: 3,000 and 3000 differ, and so do
