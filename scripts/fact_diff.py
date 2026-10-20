@@ -3,12 +3,13 @@
 
 Usage: python3 fact_diff.py ORIGINAL REWRITE
 
-Strict checks (any difference prints FAIL and exits 1): code blocks, inline
-code, URLs, quoted passages (each compared by count, so a repeated span that
-changes or goes is caught), numbers exactly as written with their signs
-(-20, −5.3, .05, 1e-3), version strings, number+unit pairs (36 MB, 30 km/h,
--$14), labelled values (p = 0.003, x >= 5), number ranges (2019-2021), and
-bounds on numbers (over 40,000, just over 40,000, about 36, up to 30, <= 5).
+Strict checks (any difference prints FAIL and exits 1): code blocks (fenced
+or indented), inline code, URLs, quoted passages (each compared by count, so a
+repeated span that changes or goes is caught), numbers exactly as written with
+their signs (-20, −5.3, .05, 1e-3), version strings, number+unit pairs (36 MB,
+30 km/h, -$14, $15/hr), labelled values (p = 0.003, x >= 5), number ranges
+(2019-2021), and bounds on numbers (over 40,000, just over 40,000, about 36,
+up to 30, <= 5).
 Review lines (exit status unaffected): number words, capitalized names
 (sentence-initial ones included), numbers that now appear fewer times, and
 changed counts of negations and hedges.
@@ -16,8 +17,8 @@ changed counts of negations and hedges.
 This is a partial check. It cannot verify claims, causes, attribution, the
 pairing of values with what they measure, or meaning in general, and exit 0
 does not establish that facts were preserved. A Markdown blockquote is read as
-prose, since it often holds the writer's own text, so a quotation without
-quotation marks is left to the manual check. Always finish with the manual
+prose, since it often holds the writer's own text, and its > markers are
+dropped, so a quotation without quotation marks is left to the manual check. Always finish with the manual
 claim-by-claim comparison. Exit status: 0 no strict differences found,
 1 strict differences found, 2 usage error.
 """
@@ -30,14 +31,20 @@ from collections import Counter
 # same character at least as long as its opener, and an inline span closes only
 # on a backtick run of its opener's length.
 FENCE_OPEN = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+# An indented code block is four columns past the enclosing list item's content
+# and cannot interrupt a paragraph, so it starts after a blank line.
+LIST_ITEM = re.compile(r"^( *)([-*+]|\d{1,9}[.)])( {1,4})(?=\S)")
+BLOCKQUOTE = re.compile(r"(?m)^ {0,3}(?:>[ \t]?)+")
 BACKTICKS = re.compile(r"`+")
 BLANK_LINE = re.compile(r"\n[ \t]*\n")
 URL = re.compile(r"https?://[^\s<>\"]+")
 # Trailing sentence punctuation is not part of a URL (as in GitHub's autolinks),
-# and a closing bracket is part of it only when the URL opened one: a_(x)/old.
+# nor is a closing quotation mark (“see https://a.b/c”), and a closing bracket is
+# part of it only when the URL opened one: a_(x)/old. A Markdown link target
+# ends at the parenthesis that closes it: **[API](https://a.b/c)**.
 # A trailing * _ or ~ is dropped only when the same marker opened just before
 # the URL (**https://a.b/c**), so https://a.b/user_ keeps its underscore.
-URL_TRAILING = ".,;:!?'\""
+URL_TRAILING = ".,;:!?'\"”’»"
 URL_CLOSERS = {")": "(", "]": "["}
 EMPHASIS_BEFORE = re.compile(r"[*_~]+$")
 # One-character quotes and long single-quoted passages count too: a changed
@@ -47,15 +54,22 @@ EMPHASIS_BEFORE = re.compile(r"[*_~]+$")
 # quotes stop at a blank line, so a stray mark (12") cannot pair with one
 # paragraphs later. An apostrophe followed by a letter
 # (don't) stays inside a single-quoted passage; one after a letter (students')
-# never opens one. The marks themselves are not compared, so the curly-to-
-# straight fix of P20 passes.
+# never opens one. A plural possessive stays inside the passage when the next
+# single mark in the paragraph closes rather than opens: 'the students' books
+# are here'. The marks themselves are not compared, so the curly-to-straight
+# fix of P20 passes.
 PARA = r"(?:(?!\n[ \t]*\n)[^{q}])"
+POSSESSIVE = r"(?<=s){q}(?=(?:(?!\n[ \t]*\n)[^{q}{o}])*[^\s{q}]{q}(?!\w))"
+CURLY_POSSESSIVE = POSSESSIVE.format(q="’", o="‘")
+STRAIGHT_POSSESSIVE = POSSESSIVE.format(q="'", o="'")
 QUOTE = re.compile(
     r'"((?:' + PARA.format(q='"') + r")+)\""
     r"|“([^”]+)”"
     r"|«([^»]+)»"
-    r"|‘((?:" + PARA.format(q="’") + r"|’(?=\w))+?)’(?!\w)"
-    r"|(?<![\w'’])'(?=\S)((?:" + PARA.format(q="'") + r"|'(?=\w))+?)'(?!\w)"
+    r"|‘((?:" + PARA.format(q="’") + r"|’(?=\w)|" + CURLY_POSSESSIVE + r")+?)"
+    r"(?!" + CURLY_POSSESSIVE + r")’(?!\w)"
+    r"|(?<![\w'’])'(?=\S)((?:" + PARA.format(q="'") + r"|'(?=\w)|" + STRAIGHT_POSSESSIVE + r")+?)"
+    r"(?!" + STRAIGHT_POSSESSIVE + r")'(?!\w)"
 )
 VERSION = re.compile(r"(?<![\w.])[vV]\d+(?:\.\d+)*(?:[-.][A-Za-z0-9]+)*\b")
 UNITS = (
@@ -68,17 +82,24 @@ UNITS = (
 # in a range or date (2019-2021) from being read as a sign. A leading-dot decimal
 # (.05) and an exponent (1.5e3, 1e-3) are part of the number.
 NUM = r"[+−-]?(?:\d+(?:[.,]\d+)*|\.\d+)(?:[eE][+−-]?\d+)?"
-# A sign before the symbol (-$14) is kept, but not a range's hyphen ($10-$20).
-CURRENCY = re.compile(r"(?:(?<![\w$€£¥₹])[+−-])?[$€£¥₹]\s?" + NUM + r"(?:\s?(?:k|K|m|M|bn|B)\b)?")
+# A sign before the symbol (-$14) is kept, but not a range's hyphen ($10-$20),
+# and so is a rate ($15/hr), as for units.
+CURRENCY = re.compile(
+    r"(?:(?<![\w$€£¥₹])[+−-])?[$€£¥₹]\s?" + NUM + r"(?:\s?(?:k|K|m|M|bn|B)\b)?(?:/[A-Za-z]+)?"
+)
 # A rate keeps its denominator, so 30 km/h -> 30 km is a changed unit.
 QUANTITY = re.compile(
     r"(?<![\w.])(" + NUM + r")\s?((?:" + UNITS + r")(?:/[A-Za-zµ°%]+)?)(?![\w])"
 )
 RANGE = re.compile(r"(?<![\w.])" + NUM + r"\s?[–—-]\s?" + NUM + r"(?![\w.])")
+BOUND_WORDS = (
+    "more than", "greater than", "less than", "fewer than", "at least", "at most", "no more than",
+    "no fewer than", "up to", "over", "under", "above", "below", "exceeding", "about", "approximately",
+    "around", "roughly", "nearly", "almost", "just over", "just under",
+)
+# A bound phrase may wrap onto the next line (more\nthan 5).
 BOUND = re.compile(
-    r"\b(more than|greater than|less than|fewer than|at least|at most|no more than|"
-    r"no fewer than|up to|over|under|above|below|exceeding|about|approximately|around|"
-    r"roughly|nearly|almost|just over|just under)\s+(" + NUM + r")"
+    r"\b(" + "|".join(w.replace(" ", r"\s+") for w in BOUND_WORDS) + r")\s+(" + NUM + r")"
     r"|(>=|<=|&gt;=|&lt;=|&ge;|&le;|&gt;|&lt;|[~<>≤≥≈])\s?(" + NUM + r")",
     re.I,
 )
@@ -145,6 +166,38 @@ def split_fences(text):
     return blocks, "".join(kept)
 
 
+def split_indented(text):
+    """Return the indented code blocks and the text outside them."""
+    blocks, kept, block, blanks = [], [], [], []
+    list_indent, after_blank = 0, True
+    for line in text.splitlines(keepends=True):
+        if not line.strip():
+            # A blank line belongs to a block only if the block continues after it.
+            (blanks if block else kept).append(line)
+            after_blank = True
+            continue
+        indent = len(line[:len(line) - len(line.lstrip(" \t"))].expandtabs(4))
+        if indent >= list_indent + 4 and (block or after_blank):
+            block += blanks + [line]
+            blanks = []
+        else:
+            if block:
+                blocks.append("".join(block))
+                kept += ["\n"] + blanks
+                block, blanks = [], []
+            m = LIST_ITEM.match(line)
+            if m:
+                list_indent = len(m.group(1)) + len(m.group(2)) + len(m.group(3))
+            elif after_blank and indent < list_indent:  # the list has ended
+                list_indent = 0
+            kept.append(line)
+        after_blank = False
+    if block:
+        blocks.append("".join(block))
+        kept += ["\n"] + blanks
+    return blocks, "".join(kept)
+
+
 def split_inline_code(text):
     """Return the inline code spans as written, and the text around them."""
     spans, kept, pos, i = [], [], 0, 0
@@ -175,17 +228,36 @@ def trim_url(url, emphasis=""):
     return url
 
 
+def link_target(url):
+    """Cut a Markdown link target at the parenthesis that closes the link."""
+    depth = 0
+    for i, c in enumerate(url):
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            if depth == 0:
+                return url[:i]
+            depth -= 1
+    return url
+
+
 def strip_protected(text):
     """Split a text into its protected spans and the prose left over."""
     facts = {}
     blocks, body = split_fences(text)
-    facts["code_blocks"] = Counter(blocks)
+    # Blockquote markers go before indented code is read, so code inside a
+    # blockquote is found, and after fences, so code lines starting with > stay.
+    indented, body = split_indented(BLOCKQUOTE.sub("", body))
+    facts["code_blocks"] = Counter(blocks + indented)
     spans, body = split_inline_code(body)
     facts["inline_code"] = Counter(spans)
     urls, kept, pos = Counter(), [], 0
     for m in URL.finditer(body):
-        before = EMPHASIS_BEFORE.search(body, max(0, m.start() - 3), m.start())
-        url = trim_url(m.group(0), before.group(0) if before else "")
+        if body.endswith("](", 0, m.start()):
+            url = link_target(m.group(0))
+        else:
+            before = EMPHASIS_BEFORE.search(body, max(0, m.start() - 3), m.start())
+            url = trim_url(m.group(0), before.group(0) if before else "")
         urls[url] += 1
         kept += [body[pos:m.start()], " ", m.group(0)[len(url):]]
         pos = m.end()
@@ -208,7 +280,7 @@ def extract(text):
     bounds = Counter()
     for m in BOUND.finditer(body):
         word, num = (m.group(1), m.group(2)) if m.group(1) else (m.group(3), m.group(4))
-        bounds[f"{BOUND_CLASS[word.lower()]} {num}"] += 1
+        bounds[f"{BOUND_CLASS[' '.join(word.lower().split())]} {num}"] += 1
     facts["bounds"] = bounds
     # Numbers are compared exactly as written: 3,000 and 3000 differ, and so do
     # 1,5 and 1.5. A rewrite should not reformat data (hard rule 4).
@@ -270,7 +342,7 @@ def diff(original, rewrite):
             # since it may be an ordinary word capitalized only because it starts
             # a sentence.
             def kept(n, text, prose):
-                """Check both texts for a name, ignoring case for a single word."""
+                """Check a text as written and as prose for a name, ignoring case for one word."""
                 return any(has_phrase(t, n, ignore_case=" " not in n) for t in (text, prose))
             lost = sorted(n for n in a[kind] if not kept(n, rewrite, b["prose"]))
             added = sorted(n for n in b[kind] if not kept(n, original, a["prose"]))
