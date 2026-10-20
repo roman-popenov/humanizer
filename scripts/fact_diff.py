@@ -42,9 +42,12 @@ FENCE = re.compile(r" {0,3}(`{3,}|~{3,})")
 ATX_HEADING = re.compile(r" {0,3}#{1,6}(?:[ \t]|$)")
 SETEXT_UNDERLINE = re.compile(r" {0,3}(?:=+|-+)[ \t]*$")
 THEMATIC_BREAK = re.compile(r" {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$")
-# A masked span (inline code, a URL) leaves this placeholder, not a space, so a
-# quotation that starts with one still opens: 'https://a.b is required.'
-MASK = "￼"
+# A masked span (inline code, a URL) leaves a placeholder of its own, a private
+# use character that is neither a word nor a space character. A quotation that
+# starts with one still opens ('https://a.b is required.'), and a quotation is
+# compared with its spans put back, so swapping two of them inside it is caught.
+MASK_BASE = 0xF0000
+MASKED = re.compile("[\U000F0000-\U0010FFFF]")
 BLOCKQUOTE = re.compile(r"(?m)^ {0,3}(?:>[ \t]?)+")
 BACKTICKS = re.compile(r"`+")
 BLANK_LINE = re.compile(r"\n[ \t]*\n")
@@ -54,11 +57,12 @@ URL = re.compile(r"https?://[^\s<>\"]+")
 # part of it only when the URL opened one: a_(x)/old. A Markdown link target
 # ends at the parenthesis that closes it: **[API](https://a.b/c)**.
 # A trailing * _ or ~ is dropped only when the same marker opened just before
-# the URL (**https://a.b/c**), so https://a.b/user_ keeps its underscore. An
-# autolink (<https://a.b/c!>) keeps everything up to its closing >.
+# the URL, or just before a bracket or quote mark that opens it (**https://a.b/c**,
+# **(https://a.b/c)**), so https://a.b/user_ keeps its underscore. An autolink
+# (<https://a.b/c!>) keeps everything up to its closing >.
 URL_TRAILING = ".,;:!?'\"”’»"
 URL_CLOSERS = {")": "(", "]": "["}
-EMPHASIS_BEFORE = re.compile(r"[*_~]+$")
+EMPHASIS_BEFORE = re.compile(r"([*_~]+)[(\[\"'“‘]?$")
 # One-character quotes and long single-quoted passages count too: a changed
 # letter inside quotation marks is a changed quotation. A passage may run over
 # line breaks. In curly double quotes or guillemets it may also run over blank
@@ -116,11 +120,13 @@ QUANTITY = re.compile(
 RANGE = re.compile(r"(?<![\w.])" + NUM + r"\s?[–—-]\s?" + NUM + r"(?![\w.])")
 BOUND_WORDS = (
     "more than", "greater than", "less than", "fewer than", "at least", "at most", "no more than",
-    "no fewer than", "up to", "over", "under", "above", "below", "exceeding", "about", "approximately",
-    "around", "roughly", "nearly", "almost", "just over", "just under",
+    "no fewer than", "no less than", "no greater than", "not more than", "not fewer than",
+    "not less than", "not greater than", "up to", "over", "under", "above", "below", "exceeding",
+    "about", "approximately", "around", "roughly", "nearly", "almost", "just over", "just under",
 )
 # A bound phrase may wrap onto the next line (more\nthan 5), and a bound may be
-# on a price (under €500, > $40).
+# on a price (under €500, > $40). A negated phrase is read whole: no less than 5
+# is >= 5, the same bound as at least 5.
 BOUNDED = r"((?:[$€£¥₹]\s?)?" + NUM + r")"
 BOUND = re.compile(
     r"\b(" + "|".join(w.replace(" ", r"\s+") for w in BOUND_WORDS) + r")\s+" + BOUNDED +
@@ -132,6 +138,8 @@ BOUND_CLASS = {
     "more than": ">", "greater than": ">", "over": ">", "above": ">", "exceeding": ">",
     "just over": ">~", ">": ">", "less than": "<", "fewer than": "<", "under": "<",
     "below": "<", "just under": "<~", "<": "<", "at least": ">=", "no fewer than": ">=",
+    "no less than": ">=", "not fewer than": ">=", "not less than": ">=", "no greater than": "<=",
+    "not more than": "<=", "not greater than": "<=",
     "≥": ">=", ">=": ">=", "at most": "<=", "no more than": "<=", "up to": "<=", "≤": "<=",
     "<=": "<=", "about": "~", "approximately": "~", "around": "~", "roughly": "~", "~": "~",
     "≈": "~", "nearly": "<~", "almost": "<~",
@@ -173,6 +181,11 @@ def indent_of(line):
     return len(line) - len(line.lstrip(" "))
 
 
+def can_interrupt(item):
+    """Only a bullet, or an ordered list starting at 1, can interrupt a paragraph."""
+    return item.group(2) in "-*+" or item.group(2)[:-1] == "1"
+
+
 def split_code(text):
     """Return the code blocks (fenced or indented) as written, and the text outside them."""
     blocks, kept, blanks = [], [], []
@@ -194,8 +207,9 @@ def split_code(text):
                 rest = rest[container:]
             matched += 1
         if matched < len(containers):
-            starts_block = (QUOTE_MARKER.match(rest) or FENCE.match(rest) or LIST_ITEM.match(rest)
-                            or ATX_HEADING.match(rest) or THEMATIC_BREAK.match(rest))
+            item = LIST_ITEM.match(rest)
+            starts_block = (QUOTE_MARKER.match(rest) or FENCE.match(rest) or ATX_HEADING.match(rest)
+                            or THEMATIC_BREAK.match(rest) or (item and can_interrupt(item)))
             if para and rest.strip() and not starts_block:
                 kept.append(raw)  # a lazy continuation keeps every container open
                 continue
@@ -220,8 +234,7 @@ def split_code(text):
                 rest, para = rest[m.end():], False
                 continue
             m = LIST_ITEM.match(rest)
-            # Only a bullet or a list starting at 1 can interrupt a paragraph.
-            if m and (not para or m.group(2) in "-*+" or m.group(2)[:-1] == "1"):
+            if m and (not para or can_interrupt(m)):
                 # Five or more spaces after the marker start indented code one column in.
                 width = m.end() if len(m.group(3)) <= 4 else m.end(2) + 1
                 containers.append(width)
@@ -262,17 +275,27 @@ def split_code(text):
     return blocks, "".join(kept)
 
 
-def split_inline_code(text):
+def mask(span, masked):
+    """Record a masked span and return the placeholder that stands for it."""
+    masked.append(span)
+    return chr(MASK_BASE + len(masked) - 1)
+
+
+def split_inline_code(text, masked):
     """Return the inline code spans as written, and the text around them."""
     spans, kept, pos, i = [], [], 0, 0
     while True:
         m = BACKTICKS.search(text, i)
         if m is None:
             break
+        backslashes = len(text[:m.start()]) - len(text[:m.start()].rstrip("\\"))
+        if backslashes % 2:  # an escaped backtick (\`) is literal and opens nothing
+            i = m.start() + 1
+            continue
         close = re.compile(r"(?<!`)`{%d}(?!`)" % len(m.group(0))).search(text, m.end())
         if close and not BLANK_LINE.search(text, m.end(), close.start()):
             spans.append(text[m.start():close.end()])
-            kept += [text[pos:m.start()], MASK]
+            kept += [text[pos:m.start()], mask(spans[-1], masked)]
             pos = i = close.end()
         else:
             i = m.end()  # an unmatched run is literal text
@@ -311,12 +334,12 @@ def link_target(url):
 
 
 def strip_protected(text):
-    """Split a text into its protected spans and the prose left over."""
-    facts = {}
+    """Split a text into its protected spans, the prose left over, and the masked spans."""
+    facts, masked = {}, []
     blocks, body = split_code(text)
     facts["code_blocks"] = Counter(blocks)
     # Blockquote markers in the prose are dropped (code keeps its own).
-    spans, body = split_inline_code(BLOCKQUOTE.sub("", body))
+    spans, body = split_inline_code(BLOCKQUOTE.sub("", body), masked)
     facts["inline_code"] = Counter(spans)
     # The search resumes where each URL ends, so a match cut short (two adjacent
     # links) still finds the URL after the cut.
@@ -328,21 +351,23 @@ def strip_protected(text):
         elif body.endswith("<", 0, m.start()) and body.startswith(">", m.end()):
             url = m.group(0)
         else:
-            before = EMPHASIS_BEFORE.search(body, max(0, m.start() - 3), m.start())
-            url = trim_url(m.group(0), before.group(0) if before else "")
+            before = EMPHASIS_BEFORE.search(body, max(0, m.start() - 4), m.start())
+            url = trim_url(m.group(0), before.group(1) if before else "")
         urls[url] += 1
-        kept += [body[pos:m.start()], MASK]
+        kept += [body[pos:m.start()], mask(url, masked)]
         pos = m.start() + len(url)
         m = URL.search(body, pos)
     facts["urls"] = urls
     kept.append(body[pos:])
-    return facts, "".join(kept)
+    return facts, "".join(kept), masked
 
 
 def extract(text):
     """Return token counts, review counts, and prose for the fact comparison."""
-    facts, body = strip_protected(text)
-    facts["quotes"] = Counter(next(g for g in m.groups() if g) for m in QUOTE.finditer(body))
+    facts, body, masked = strip_protected(text)
+    facts["quotes"] = Counter(MASKED.sub(lambda s: masked[ord(s.group(0)) - MASK_BASE],
+                                         next(g for g in m.groups() if g))
+                              for m in QUOTE.finditer(body))
     facts["versions"] = Counter(m.group(0) for m in VERSION.finditer(body))
     body = VERSION.sub(" ", body)
     facts["currency"] = Counter(re.sub(r"\s", "", m.group(0)) for m in CURRENCY.finditer(body))
