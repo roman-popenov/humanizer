@@ -33,11 +33,18 @@ from collections import Counter
 # indentation (or lazily continues a paragraph). Code is a fenced block, whose
 # fence may sit inside a blockquote or list item and closes only on a line of the
 # same character at least as long as its opener, or an indented block, four
-# columns past its container, which cannot interrupt a paragraph. An inline span
-# closes only on a backtick run of its opener's length.
+# columns past its container, which cannot interrupt a paragraph; a heading or
+# a thematic break ends a paragraph, so code may follow it directly. An inline
+# span closes only on a backtick run of its opener's length.
 QUOTE_MARKER = re.compile(r" {0,3}>[ \t]?")
-LIST_ITEM = re.compile(r"( {0,3})([-*+]|\d{1,9}[.)])( {1,4})(?=\S)")
+LIST_ITEM = re.compile(r"( {0,3})([-*+]|\d{1,9}[.)])( +)(?=\S)")
 FENCE = re.compile(r" {0,3}(`{3,}|~{3,})")
+ATX_HEADING = re.compile(r" {0,3}#{1,6}(?:[ \t]|$)")
+SETEXT_UNDERLINE = re.compile(r" {0,3}(?:=+|-+)[ \t]*$")
+THEMATIC_BREAK = re.compile(r" {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$")
+# A masked span (inline code, a URL) leaves this placeholder, not a space, so a
+# quotation that starts with one still opens: 'https://a.b is required.'
+MASK = "￼"
 BLOCKQUOTE = re.compile(r"(?m)^ {0,3}(?:>[ \t]?)+")
 BACKTICKS = re.compile(r"`+")
 BLANK_LINE = re.compile(r"\n[ \t]*\n")
@@ -117,7 +124,8 @@ BOUND_WORDS = (
 BOUNDED = r"((?:[$€£¥₹]\s?)?" + NUM + r")"
 BOUND = re.compile(
     r"\b(" + "|".join(w.replace(" ", r"\s+") for w in BOUND_WORDS) + r")\s+" + BOUNDED +
-    r"|(>=|<=|&gt;=|&lt;=|&ge;|&le;|&gt;|&lt;|[~<>≤≥≈])\s?" + BOUNDED,
+    # A tilde of ~~strikethrough~~ is not "about".
+    r"|(>=|<=|&gt;=|&lt;=|&ge;|&le;|&gt;|&lt;|[<>≤≥≈]|(?<!~)~(?!~))\s?" + BOUNDED,
     re.I,
 )
 BOUND_CLASS = {
@@ -186,7 +194,8 @@ def split_code(text):
                 rest = rest[container:]
             matched += 1
         if matched < len(containers):
-            starts_block = QUOTE_MARKER.match(rest) or FENCE.match(rest) or LIST_ITEM.match(rest)
+            starts_block = (QUOTE_MARKER.match(rest) or FENCE.match(rest) or LIST_ITEM.match(rest)
+                            or ATX_HEADING.match(rest) or THEMATIC_BREAK.match(rest))
             if para and rest.strip() and not starts_block:
                 kept.append(raw)  # a lazy continuation keeps every container open
                 continue
@@ -204,7 +213,7 @@ def split_code(text):
                 code = None
             continue
         # New containers; four columns in is code or paragraph text, never a marker.
-        while indent_of(rest) < 4:
+        while indent_of(rest) < 4 and not THEMATIC_BREAK.match(rest):  # - - - is no item
             m = QUOTE_MARKER.match(rest)
             if m:
                 containers.append(">")
@@ -213,8 +222,10 @@ def split_code(text):
             m = LIST_ITEM.match(rest)
             # Only a bullet or a list starting at 1 can interrupt a paragraph.
             if m and (not para or m.group(2) in "-*+" or m.group(2)[:-1] == "1"):
-                containers.append(len(m.group(0)))
-                rest, para = rest[m.end():], False
+                # Five or more spaces after the marker start indented code one column in.
+                width = m.end() if len(m.group(3)) <= 4 else m.end(2) + 1
+                containers.append(width)
+                rest, para = rest[width:], False
                 continue
             break
         if code:  # an open indented block
@@ -242,7 +253,9 @@ def split_code(text):
             code, para = [[raw], len(containers), closer], False
             continue
         kept.append(raw)
-        para = True
+        # A heading or thematic break ends the paragraph: Title\n---, # Title, ***.
+        para = not ((para and SETEXT_UNDERLINE.match(rest)) or ATX_HEADING.match(rest)
+                    or THEMATIC_BREAK.match(rest))
     if code:  # an unclosed block runs to the end of the text
         blocks.append("".join(code[0]))
         kept += ["\n"] + blanks
@@ -259,7 +272,7 @@ def split_inline_code(text):
         close = re.compile(r"(?<!`)`{%d}(?!`)" % len(m.group(0))).search(text, m.end())
         if close and not BLANK_LINE.search(text, m.end(), close.start()):
             spans.append(text[m.start():close.end()])
-            kept += [text[pos:m.start()], " "]
+            kept += [text[pos:m.start()], MASK]
             pos = i = close.end()
         else:
             i = m.end()  # an unmatched run is literal text
@@ -318,7 +331,7 @@ def strip_protected(text):
             before = EMPHASIS_BEFORE.search(body, max(0, m.start() - 3), m.start())
             url = trim_url(m.group(0), before.group(0) if before else "")
         urls[url] += 1
-        kept += [body[pos:m.start()], " "]
+        kept += [body[pos:m.start()], MASK]
         pos = m.start() + len(url)
         m = URL.search(body, pos)
     facts["urls"] = urls
