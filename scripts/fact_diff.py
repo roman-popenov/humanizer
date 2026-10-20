@@ -42,15 +42,18 @@ URL_CLOSERS = {")": "(", "]": "["}
 EMPHASIS_BEFORE = re.compile(r"[*_~]+$")
 # One-character quotes and long single-quoted passages count too: a changed
 # letter inside quotation marks is a changed quotation. A passage may run over
-# line breaks but not over a blank line. An apostrophe followed by a letter
+# line breaks. In curly double quotes or guillemets it may also run over blank
+# lines, since their opening and closing marks differ; straight and single
+# quotes stop at a blank line, so a stray mark (12") cannot pair with one
+# paragraphs later. An apostrophe followed by a letter
 # (don't) stays inside a single-quoted passage; one after a letter (students')
 # never opens one. The marks themselves are not compared, so the curly-to-
 # straight fix of P20 passes.
 PARA = r"(?:(?!\n[ \t]*\n)[^{q}])"
 QUOTE = re.compile(
     r'"((?:' + PARA.format(q='"') + r")+)\""
-    r"|“((?:" + PARA.format(q="”") + r")+)”"
-    r"|«((?:" + PARA.format(q="»") + r")+)»"
+    r"|“([^”]+)”"
+    r"|«([^»]+)»"
     r"|‘((?:" + PARA.format(q="’") + r"|’(?=\w))+?)’(?!\w)"
     r"|(?<![\w'’])'(?=\S)((?:" + PARA.format(q="'") + r"|'(?=\w))+?)'(?!\w)"
 )
@@ -76,7 +79,7 @@ BOUND = re.compile(
     r"\b(more than|greater than|less than|fewer than|at least|at most|no more than|"
     r"no fewer than|up to|over|under|above|below|exceeding|about|approximately|around|"
     r"roughly|nearly|almost|just over|just under)\s+(" + NUM + r")"
-    r"|(>=|<=|[~<>≤≥≈])\s?(" + NUM + r")",
+    r"|(>=|<=|&gt;=|&lt;=|&ge;|&le;|&gt;|&lt;|[~<>≤≥≈])\s?(" + NUM + r")",
     re.I,
 )
 BOUND_CLASS = {
@@ -86,9 +89,11 @@ BOUND_CLASS = {
     "≥": ">=", ">=": ">=", "at most": "<=", "no more than": "<=", "up to": "<=", "≤": "<=",
     "<=": "<=", "about": "~", "approximately": "~", "around": "~", "roughly": "~", "~": "~",
     "≈": "~", "nearly": "<~", "almost": "<~",
+    # HTML entities, as Markdown renders them
+    "&gt;=": ">=", "&lt;=": "<=", "&ge;": ">=", "&le;": "<=", "&gt;": ">", "&lt;": "<",
 }
 LABELLED = re.compile(
-    r"(?<![\w])([A-Za-z]\w{0,10})\s?(>=|<=|!=|[=<>≤≥≠≈])\s?(" + NUM + r")"
+    r"(?<![\w])([A-Za-z]\w{0,10})\s?(>=|<=|!=|&gt;=|&lt;=|&ge;|&le;|&ne;|&gt;|&lt;|[=<>≤≥≠≈])\s?(" + NUM + r")"
 )
 NUMBER = re.compile(r"(?<![\w.])" + NUM + r"(?:%|x\b)?")
 # Capitals exclude the multiplication sign (U+00D7) that sits inside À-Þ.
