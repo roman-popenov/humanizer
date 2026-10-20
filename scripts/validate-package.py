@@ -252,7 +252,11 @@ hard_rules = require_match(
     re.search(r"(?ms)^## Hard rules$(.*?)(?=^## )", SKILL),
     "Keep the '## Hard rules' section in SKILL.md",
 ).group(1)
-hard_rule_count = len(re.findall(r"(?m)^[0-9]+\. ", hard_rules))
+# The rules are read by their written numbers, so check those, not just the count.
+hard_rule_numbers = [int(number) for number in re.findall(r"(?m)^([0-9]+)\. ", hard_rules)]
+hard_rule_count = len(hard_rule_numbers)
+if hard_rule_count == 0 or hard_rule_numbers != list(range(1, hard_rule_count + 1)):
+    raise SystemExit(f"Number the hard rules in SKILL.md 1 through {hard_rule_count} in order: {hard_rule_numbers}")
 for name, text in skill_text.items():
     missing_rules = sorted(
         {int(number) for number in re.findall(r"(?i)\bhard rule ([0-9]+)", text)}
