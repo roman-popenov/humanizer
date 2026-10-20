@@ -6,10 +6,10 @@ Usage: python3 fact_diff.py ORIGINAL REWRITE
 Strict checks (any difference prints FAIL and exits 1): code blocks (fenced
 or indented), inline code, URLs, quoted passages (each compared by count, so a
 repeated span that changes or goes is caught), numbers exactly as written with
-their signs (-20, −5.3, .05, 1e-3), version strings, number+unit pairs (36 MB,
-30 km/h, -$14, $15/hr), labelled values (p = 0.003, x >= 5), number ranges
-(2019-2021), and bounds on numbers (over 40,000, just over 40,000, about 36,
-up to 30, <= 5).
+their signs (-20, −5.3, .05, 1e-3), version strings (v2.1, 2.4.0-beta),
+number+unit pairs (36 MB, 30 km/h, 5 seconds, -$14, $15/hr), labelled values
+(p = 0.003, x >= 5), number ranges (2019-2021), and bounds on numbers (over
+40,000, just over 40,000, about 36, up to 30, <= 5).
 Review lines (exit status unaffected): number words, capitalized names
 (sentence-initial ones included), numbers that now appear fewer times, and
 changed counts of negations and hedges.
@@ -18,8 +18,9 @@ This is a partial check. It cannot verify claims, causes, attribution, the
 pairing of values with what they measure, or meaning in general, and exit 0
 does not establish that facts were preserved. A Markdown blockquote is read as
 prose, since it often holds the writer's own text, and its > markers are
-dropped, so a quotation without quotation marks is left to the manual check. Always finish with the manual
-claim-by-claim comparison. Exit status: 0 no strict differences found,
+dropped (code inside it is still code), so a quotation without quotation marks
+is left to the manual check. Always finish with the manual claim-by-claim
+comparison. Exit status: 0 no strict differences found,
 1 strict differences found, 2 usage error.
 """
 
@@ -29,8 +30,9 @@ from collections import Counter
 
 # Code spans and fences follow CommonMark: a fence closes only on a line of the
 # same character at least as long as its opener, and an inline span closes only
-# on a backtick run of its opener's length.
-FENCE_OPEN = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+# on a backtick run of its opener's length. A fence inside a blockquote keeps its
+# > markers on every line and ends with the blockquote.
+FENCE_OPEN = re.compile(r"^((?: {0,3}>[ \t]?)*) {0,3}(`{3,}|~{3,})")
 # An indented code block is four columns past the enclosing list item's content
 # and cannot interrupt a paragraph, so it starts after a blank line.
 LIST_ITEM = re.compile(r"^( *)([-*+]|\d{1,9}[.)])( {1,4})(?=\S)")
@@ -43,7 +45,8 @@ URL = re.compile(r"https?://[^\s<>\"]+")
 # part of it only when the URL opened one: a_(x)/old. A Markdown link target
 # ends at the parenthesis that closes it: **[API](https://a.b/c)**.
 # A trailing * _ or ~ is dropped only when the same marker opened just before
-# the URL (**https://a.b/c**), so https://a.b/user_ keeps its underscore.
+# the URL (**https://a.b/c**), so https://a.b/user_ keeps its underscore. An
+# autolink (<https://a.b/c!>) keeps everything up to its closing >.
 URL_TRAILING = ".,;:!?'\"”’»"
 URL_CLOSERS = {")": "(", "]": "["}
 EMPHASIS_BEFORE = re.compile(r"[*_~]+$")
@@ -56,26 +59,34 @@ EMPHASIS_BEFORE = re.compile(r"[*_~]+$")
 # (don't) stays inside a single-quoted passage; one after a letter (students')
 # never opens one. A plural possessive stays inside the passage when the next
 # single mark in the paragraph closes rather than opens: 'the students' books
-# are here'. The marks themselves are not compared, so the curly-to-straight
-# fix of P20 passes.
+# are here'. An abbreviated year or decade ('90s, '24) never opens a passage.
+# The marks themselves are not compared, so the curly-to-straight fix of P20
+# passes.
 PARA = r"(?:(?!\n[ \t]*\n)[^{q}])"
 POSSESSIVE = r"(?<=s){q}(?=(?:(?!\n[ \t]*\n)[^{q}{o}])*[^\s{q}]{q}(?!\w))"
 CURLY_POSSESSIVE = POSSESSIVE.format(q="’", o="‘")
 STRAIGHT_POSSESSIVE = POSSESSIVE.format(q="'", o="'")
+YEAR = r"(?!\d{2}s?\b)"
 QUOTE = re.compile(
     r'"((?:' + PARA.format(q='"') + r")+)\""
     r"|“([^”]+)”"
     r"|«([^»]+)»"
-    r"|‘((?:" + PARA.format(q="’") + r"|’(?=\w)|" + CURLY_POSSESSIVE + r")+?)"
+    r"|‘" + YEAR + r"((?:" + PARA.format(q="’") + r"|’(?=\w)|" + CURLY_POSSESSIVE + r")+?)"
     r"(?!" + CURLY_POSSESSIVE + r")’(?!\w)"
-    r"|(?<![\w'’])'(?=\S)((?:" + PARA.format(q="'") + r"|'(?=\w)|" + STRAIGHT_POSSESSIVE + r")+?)"
+    r"|(?<![\w'’])'(?=\S)" + YEAR + r"((?:" + PARA.format(q="'") + r"|'(?=\w)|" + STRAIGHT_POSSESSIVE + r")+?)"
     r"(?!" + STRAIGHT_POSSESSIVE + r")'(?!\w)"
 )
-VERSION = re.compile(r"(?<![\w.])[vV]\d+(?:\.\d+)*(?:[-.][A-Za-z0-9]+)*\b")
+# A v-prefixed version, or a three-part one with a pre-release or build suffix
+# (2.4.0-beta, 1.0.0+build.5); a bare 2.4.0 is compared as a number.
+VERSION = re.compile(
+    r"(?<![\w.])(?:[vV]\d+(?:\.\d+)*(?:[-.][A-Za-z0-9]+)*"
+    r"|\d+\.\d+\.\d+(?:[-+][0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)+)\b"
+)
 UNITS = (
     r"%|‰|°[CF]?|x|ms|µs|us|ns|s|sec|secs|min|mins|h|hr|hrs|KB|kB|MB|GB|TB|PB|Kb|Mb|Gb|"
     r"KiB|MiB|GiB|TiB|Hz|kHz|MHz|GHz|Msps|ksps|fps|px|pt|dB|dBm|mm|cm|m|km|g|kg|mg|lb|lbs|"
-    r"oz|mi|ft|V|mV|W|kW|MW|mA|mAh|Wh|kWh|mmHg|bpm|rpm"
+    r"oz|mi|ft|V|mV|W|kW|MW|mA|mAh|Wh|kWh|mmHg|bpm|rpm|"
+    r"(?:nano|micro|milli)?seconds?|minutes?|hours?|days?|weeks?|months?|years?"
 )
 # An optional sign (ASCII hyphen-minus, Unicode minus or plus) is part of the
 # number, so -20 -> 20 is a changed value. The lookbehinds below keep the hyphen
@@ -145,22 +156,29 @@ HEDGE = re.compile(
 
 def split_fences(text):
     """Return the fenced code blocks and the text outside them."""
-    blocks, kept, block, closer = [], [], [], None
+    blocks, kept, block, closer, quoted = [], [], [], None, None
     for line in text.splitlines(keepends=True):
-        if closer is None:
-            m = FENCE_OPEN.match(line)
-            # A backtick fence's info string cannot contain a backtick.
-            if m and not (m.group(1)[0] == "`" and "`" in line[m.end():]):
-                closer = re.compile(r"^ {0,3}" + re.escape(m.group(1)[0]) + "{%d,}[ \t]*$" % len(m.group(1)))
-                block = [line]
-            else:
-                kept.append(line)
-        else:
-            block.append(line)
-            if closer.match(line.rstrip("\r\n")):
+        if closer is not None:
+            q = quoted.match(line)
+            if q is None:  # the blockquote ended, and the fence with it
                 blocks.append("".join(block))
                 kept.append("\n")
                 closer = None
+            else:
+                block.append(line)
+                if closer.match(line[q.end():].rstrip("\r\n")):
+                    blocks.append("".join(block))
+                    kept.append("\n")
+                    closer = None
+                continue
+        m = FENCE_OPEN.match(line)
+        # A backtick fence's info string cannot contain a backtick.
+        if m and not (m.group(2)[0] == "`" and "`" in line[m.end():]):
+            closer = re.compile(r"^ {0,3}" + re.escape(m.group(2)[0]) + "{%d,}[ \t]*$" % len(m.group(2)))
+            quoted = re.compile(r"(?: {0,3}>[ \t]?){%d}" % m.group(1).count(">"))
+            block = [line]
+        else:
+            kept.append(line)
     if closer is not None:  # an unclosed fence runs to the end of the text
         blocks.append("".join(block))
     return blocks, "".join(kept)
@@ -169,7 +187,7 @@ def split_fences(text):
 def split_indented(text):
     """Return the indented code blocks and the text outside them."""
     blocks, kept, block, blanks = [], [], [], []
-    list_indent, after_blank = 0, True
+    lists, after_blank = [], True  # content indents of the open list items, innermost last
     for line in text.splitlines(keepends=True):
         if not line.strip():
             # A blank line belongs to a block only if the block continues after it.
@@ -177,7 +195,8 @@ def split_indented(text):
             after_blank = True
             continue
         indent = len(line[:len(line) - len(line.lstrip(" \t"))].expandtabs(4))
-        if indent >= list_indent + 4 and (block or after_blank):
+        base = lists[-1] if lists else 0
+        if indent >= base + 4 and (block or after_blank):
             block += blanks + [line]
             blanks = []
         else:
@@ -185,11 +204,14 @@ def split_indented(text):
                 blocks.append("".join(block))
                 kept += ["\n"] + blanks
                 block, blanks = [], []
+            # Four columns past the content is a continuation line, not an item.
             m = LIST_ITEM.match(line)
-            if m:
-                list_indent = len(m.group(1)) + len(m.group(2)) + len(m.group(3))
-            elif after_blank and indent < list_indent:  # the list has ended
-                list_indent = 0
+            item = m is not None and len(m.group(1)) < base + 4
+            if item or after_blank:  # close the items this line sits outside
+                while lists and indent < lists[-1]:
+                    lists.pop()
+            if item:
+                lists.append(len(m.group(1)) + len(m.group(2)) + len(m.group(3)))
             kept.append(line)
         after_blank = False
     if block:
@@ -251,16 +273,22 @@ def strip_protected(text):
     facts["code_blocks"] = Counter(blocks + indented)
     spans, body = split_inline_code(body)
     facts["inline_code"] = Counter(spans)
+    # The search resumes where each URL ends, so a match cut short (two adjacent
+    # links) still finds the URL after the cut.
     urls, kept, pos = Counter(), [], 0
-    for m in URL.finditer(body):
+    m = URL.search(body)
+    while m:
         if body.endswith("](", 0, m.start()):
             url = link_target(m.group(0))
+        elif body.endswith("<", 0, m.start()) and body.startswith(">", m.end()):
+            url = m.group(0)
         else:
             before = EMPHASIS_BEFORE.search(body, max(0, m.start() - 3), m.start())
             url = trim_url(m.group(0), before.group(0) if before else "")
         urls[url] += 1
-        kept += [body[pos:m.start()], " ", m.group(0)[len(url):]]
-        pos = m.end()
+        kept += [body[pos:m.start()], " "]
+        pos = m.start() + len(url)
+        m = URL.search(body, pos)
     facts["urls"] = urls
     kept.append(body[pos:])
     return facts, "".join(kept)
