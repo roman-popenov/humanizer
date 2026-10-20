@@ -95,6 +95,9 @@ BOUND_CLASS = {
 LABELLED = re.compile(
     r"(?<![\w])([A-Za-z]\w{0,10})\s?(>=|<=|!=|&gt;=|&lt;=|&ge;|&le;|&ne;|&gt;|&lt;|[=<>≤≥≠≈])\s?(" + NUM + r")"
 )
+# Spellings of one operator compare equal, as they do for bounds: x ≥ 5 is x >= 5.
+LABEL_OPERATOR = {"≥": ">=", "&gt;=": ">=", "&ge;": ">=", "≤": "<=", "&lt;=": "<=", "&le;": "<=",
+                  "≠": "!=", "&ne;": "!=", "&gt;": ">", "&lt;": "<"}
 NUMBER = re.compile(r"(?<![\w.])" + NUM + r"(?:%|x\b)?")
 # Capitals exclude the multiplication sign (U+00D7) that sits inside À-Þ.
 NAME = re.compile(r"\b[A-ZÀ-ÖØ-Þ][\w'’-]*(?:[ \t]+[A-ZÀ-ÖØ-Þ][\w'’-]*)*")
@@ -197,7 +200,8 @@ def extract(text):
     body = VERSION.sub(" ", body)
     facts["currency"] = Counter(re.sub(r"\s", "", m.group(0)) for m in CURRENCY.finditer(body))
     facts["quantities"] = Counter(f"{m.group(1)} {m.group(2)}" for m in QUANTITY.finditer(body))
-    facts["labelled"] = Counter(" ".join(m.groups()) for m in LABELLED.finditer(body))
+    facts["labelled"] = Counter(f"{m.group(1)} {LABEL_OPERATOR.get(m.group(2), m.group(2))} {m.group(3)}"
+                                for m in LABELLED.finditer(body))
     facts["ranges"] = Counter(re.sub(r"\s", "", m.group(0)) for m in RANGE.finditer(body))
     bounds = Counter()
     for m in BOUND.finditer(body):
