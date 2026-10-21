@@ -61,7 +61,9 @@ BLANK_LINE = re.compile(r"\n[ \t]*\n")
 # spaces of any kind (a non-breaking space included) and at most one line
 # break, indented or not, but never a blank line (5\u00a0kg, 5\n  ms, p  =  0.003).
 GAP = r"[^\S\n]*(?:\n[^\S\n]*)?"
-URL_START = r'https?://[^\s<>"'  # completed with the placeholders a URL stops at
+# A URL of any scheme (https://, ftp://, ssh://). A scheme starts a token and is
+# short, so a long word without :// is scanned once, not once per letter.
+URL_START = r'(?<![A-Za-z0-9+.-])[A-Za-z][A-Za-z0-9+.-]{0,31}://[^\s<>"'  # completed with the placeholders a URL stops at
 URL = re.compile(URL_START + "]+")
 # Every Markdown link target is protected with its own boundaries, web URLs
 # included: an inline target ([guide](docs/a.md), [x](#setup), [x]( https://a.b))
@@ -155,16 +157,19 @@ POWER = r"(?:[⁰¹²³⁴⁵⁶⁷⁸⁹⁻]+|(?<![x%])(?:\^-?[0-9]+|[23](?![0-
 CURRENCY = re.compile(
     r"(?:(?<![\w$€£¥₹])[+−-])?[$€£¥₹]\s?" + NUM + r"(?:\s?(?:k|K|m|M|bn|B)\b)?(?:/[A-Za-z]+" + POWER + r")?"
 )
-# A symbol may follow its amount (50 €), and is then compared as if it came
-# first (€50); a symbol followed by a number (5 $20) belongs to that price.
+# A symbol may follow its amount (50 €, 50 €/hr), and is then compared as if it
+# came first (€50, €50/hr); a symbol followed by a number (5 $20) belongs to
+# that price.
 CURRENCY_AFTER = re.compile(
-    r"(?<![\w.$€£¥₹])([+−-]?)((?:\d+(?:[.,]\d+)*|\.\d+))[^\S\n]?([$€£¥₹])(?![\w$€£¥₹]|[^\S\n]?[+−-]?\.?\d)"
+    r"(?<![\w.$€£¥₹])([+−-]?)((?:\d+(?:[.,]\d+)*|\.\d+))" + GAP + r"([$€£¥₹])"
+    r"(?![$€£¥₹]|" + GAP + r"[+−-]?\.?\d)((?:/[A-Za-z]+" + POWER + r")?)(?!\w)"
 )
 # A rate keeps its denominator, so 30 km/h -> 30 km is a changed unit, and a
 # denominator that cannot be read still leaves the number and base unit
-# compared (5 kg).
+# compared (5 kg). A hyphen may join the number and unit (a 5-minute timeout),
+# but not x, which after a hyphen is a variable (255-x), not a multiplier.
 QUANTITY = re.compile(
-    r"(?<![\w.])(" + NUM + r")" + GAP + r"((?:" + UNITS + r")" + POWER + r"(?:/[A-Za-zµ°%]+" + POWER + r")?)(?![\w])"
+    r"(?<![\w.])(" + NUM + r")(?:" + GAP + r"|-(?!x\b))((?:" + UNITS + r")" + POWER + r"(?:/[A-Za-zµ°%]+" + POWER + r")?)(?![\w])"
 )
 # A period after a range ends the sentence unless a digit follows (0.05–0.5.).
 # A range may wrap around an en or em dash (5\n–10), but a hyphen stays on the
@@ -206,13 +211,14 @@ LABELLED = re.compile(
 LABEL_OPERATOR = {"≥": ">=", "&gt;=": ">=", "&ge;": ">=", "≤": "<=", "&lt;=": "<=", "&le;": "<=",
                   "≠": "!=", "&ne;": "!=", "&gt;": ">", "&lt;": "<"}
 # A compact dimension is one value with its sign, unit, power and denominator,
-# the unit attached or after a space (-2x3, 1920x1080px, 1.5x2.5cm, 3x4m²,
-# 10x20 cm, 10x20 kg/m²); 0x4601 is hex, not 0 by 4601.
+# the unit attached, after a space or line break, or after a hyphen (-2x3,
+# 1920x1080px, 1.5x2.5cm, 3x4m², 10x20 cm, 10x20-cm, 10x20 kg/m²); 0x4601 is
+# hex, not 0 by 4601.
 DENOMINATOR = r"(?:/[A-Za-zµ°%]+" + POWER + r")?"
 DIMENSION = re.compile(
     r"(?<![\w.])([+−-]?(?!0[xX])\d+(?:\.\d+)?(?:[xX×]\d+(?:\.\d+)?)+)"
     r"(?:([A-Za-zµ°%]+" + POWER + DENOMINATOR + r")"
-    r"|[^\S\n]+((?:" + UNITS + r")" + POWER + DENOMINATOR + r")(?!\w))?(?!\w)"
+    r"|(?:(?=\s)" + GAP + r"|-)((?:" + UNITS + r")" + POWER + DENOMINATOR + r")(?!\w))?(?!\w)"
 )
 # A hex literal (0x4601, -0x10) is one number with its sign, compared as written.
 NUMBER = re.compile(r"(?<![\w.])(?:[+−-]?0[xX][0-9A-Fa-f]+\b|" + NUM + r"(?:%|x\b)?)")
@@ -529,7 +535,8 @@ def extract(text):
     facts["versions"] = Counter(m.group(0) for m in VERSION.finditer(body))
     body = VERSION.sub(" ", body)
     facts["currency"] = (Counter(re.sub(r"\s", "", m.group(0)) for m in CURRENCY.finditer(body))
-                         + Counter(m.group(1) + m.group(3) + m.group(2) for m in CURRENCY_AFTER.finditer(body)))
+                         + Counter(m.group(1) + m.group(3) + m.group(2) + m.group(4)
+                                   for m in CURRENCY_AFTER.finditer(body)))
     facts["quantities"] = Counter(f"{m.group(1)} {m.group(2)}" for m in QUANTITY.finditer(body))
     facts["labelled"] = Counter(f"{m.group(1)} {LABEL_OPERATOR.get(m.group(2), m.group(2))} {m.group(3)}"
                                 for m in LABELLED.finditer(body))
