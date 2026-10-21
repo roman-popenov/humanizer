@@ -4,9 +4,10 @@
 Usage: python3 fact_diff.py ORIGINAL REWRITE
 
 Strict checks (any difference prints FAIL and exits 1): code blocks (fenced
-or indented), inline code, URLs, quoted passages (each compared by count, so a
-repeated span that changes or goes is caught), numbers exactly as written with
-their signs (-20, −5.3, .05, 1e-3), version strings (v2.1, 2.4.0-beta),
+or indented), inline code, URLs and Markdown link targets, quoted passages (each
+compared by count, so a repeated span that changes or goes is caught), numbers
+exactly as written with their signs (-20, −5.3, .05, 1e-3, 0x4601, 1920x1080),
+version strings (v2.1, 2.4.0-beta),
 number+unit pairs (36 MB, 30 km/h, 5 kg/m³, 5 seconds, -$14, $15/hr), labelled values
 (p = 0.003, x >= 5), number ranges (2019-2021), and bounds on numbers (over
 40,000, just over 40,000, about 36, up to 30, <= 5).
@@ -56,6 +57,11 @@ BACKTICKS = re.compile(r"`+")
 BLANK_LINE = re.compile(r"\n[ \t]*\n")
 URL_START = r'https?://[^\s<>"'  # completed with the placeholders a URL stops at
 URL = re.compile(URL_START + "]+")
+# Every Markdown link target is protected, not only a web URL: an inline target
+# ([guide](docs/a.md), [x](#setup)) and a reference definition ([id]: docs/a.md),
+# but not a footnote ([^1]: text). A web URL among them is left to the URL check.
+LINK_TARGET = re.compile(r"\]\([^\S\n]*(\S+)|(?m:^)[ \t]{0,3}\[(?!\^)[^\]\n]+\]:[ \t]*(\S+)")
+WEB = re.compile(r"<?https?://")
 # Trailing sentence punctuation is not part of a URL (as in GitHub's autolinks),
 # nor is a closing quotation mark (“see https://a.b/c”), and a closing bracket is
 # part of it only when the URL opened one: a_(x)/old. A Markdown link target
@@ -124,20 +130,22 @@ UNITS = (
 # in a range or date (2019-2021) from being read as a sign. A leading-dot decimal
 # (.05) and an exponent (1.5e3, 1e-3) are part of the number.
 NUM = r"[+−-]?(?:\d+(?:[.,]\d+)*|\.\d+)(?:[eE][+−-]?\d+)?"
-# Between a value and its unit, label or operator: spaces and at most one line
-# break, indented or not, but never a blank line (5\n  ms, p  =  0.003).
-GAP = r"[ \t]*(?:\n[ \t]*)?"
-# A sign before the symbol (-$14) is kept, but not a range's hyphen ($10-$20),
-# and so is a rate ($15/hr), as for units.
-CURRENCY = re.compile(
-    r"(?:(?<![\w$€£¥₹])[+−-])?[$€£¥₹]\s?" + NUM + r"(?:\s?(?:k|K|m|M|bn|B)\b)?(?:/[A-Za-z]+)?"
-)
-# A rate keeps its denominator, so 30 km/h -> 30 km is a changed unit.
+# Between a value and its unit, label or operator: spaces of any kind (a
+# non-breaking space included) and at most one line break, indented or not, but
+# never a blank line (5\u00a0kg, 5\n  ms, p  =  0.003).
+GAP = r"[^\S\n]*(?:\n[^\S\n]*)?"
 # A unit keeps its power, written as a superscript, after ^, or as a bare 2 or 3
 # (5 kg/m³, 5 m^2, 5 kg/m2), so a changed power or denominator is caught; x and
-# % take no digit power, so 0x4601 and 90x128 are not quantities. A denominator
-# that cannot be read still leaves the number and base unit compared (5 kg).
+# % take no digit power, so 0x4601 and 90x128 are not quantities.
 POWER = r"(?:[⁰¹²³⁴⁵⁶⁷⁸⁹⁻]+|(?<![x%])(?:\^-?[0-9]+|[23](?![0-9])))?"
+# A sign before the symbol (-$14) is kept, but not a range's hyphen ($10-$20),
+# and so is a rate with its power ($15/hr, $15/m²), as for units.
+CURRENCY = re.compile(
+    r"(?:(?<![\w$€£¥₹])[+−-])?[$€£¥₹]\s?" + NUM + r"(?:\s?(?:k|K|m|M|bn|B)\b)?(?:/[A-Za-z]+" + POWER + r")?"
+)
+# A rate keeps its denominator, so 30 km/h -> 30 km is a changed unit, and a
+# denominator that cannot be read still leaves the number and base unit
+# compared (5 kg).
 QUANTITY = re.compile(
     r"(?<![\w.])(" + NUM + r")" + GAP + r"((?:" + UNITS + r")" + POWER + r"(?:/[A-Za-zµ°%]+" + POWER + r")?)(?![\w])"
 )
@@ -177,17 +185,19 @@ LABELLED = re.compile(
 # Spellings of one operator compare equal, as they do for bounds: x ≥ 5 is x >= 5.
 LABEL_OPERATOR = {"≥": ">=", "&gt;=": ">=", "&ge;": ">=", "≤": "<=", "&lt;=": "<=", "&le;": "<=",
                   "≠": "!=", "&ne;": "!=", "&gt;": ">", "&lt;": "<"}
-# A hex literal (0x4601) is one number, compared as written.
-NUMBER = re.compile(r"(?<![\w.])(?:0[xX][0-9A-Fa-f]+\b|" + NUM + r"(?:%|x\b)?)")
-# Bold and italic are removed only where a marker run opens and the same run
-# closes it, within a paragraph, and neither run touches a word: **5** and
-# __5__ give 5, while a lone or in-word marker stays, so 2**10 is not 210,
-# a*2 and b*3 keep their values, and timeout_ and IRDN_RAN keep their underscores.
-# A run may sit right next to another marker, so nested emphasis (**5 *kg***)
+# A hex literal (0x4601) and a compact dimension (1920x1080, 10x20x30) are one
+# number each, compared as written.
+NUMBER = re.compile(r"(?<![\w.])(?:0[xX][0-9A-Fa-f]+\b|\d+(?:[xX×]\d+)+\b|" + NUM + r"(?:%|x\b)?)")
+# Bold and italic are removed where a marker run opens and the same run closes
+# it within a paragraph, as Markdown reads them: an asterisk pair may touch a
+# word (**5**kg), an underscore pair may not (timeout_, IRDN_RAN). Where removing
+# a marker would join two words or a word and a number, a space takes its place,
+# so a*2 and b*3 keep both values; a lone marker stays, so 2**10 is not 210. A
+# run may sit right next to another marker, so nested emphasis (**5 *kg***)
 # unwraps one level per pass.
 INLINE = r"((?:[^\n]|\n(?![ \t]*\n))+?)"
 EMPHASIS = (
-    re.compile(r"(?<![\w*])(\*{1,3})(?!\s)" + INLINE + r"(?<!\s)\1(?!\w)"),
+    re.compile(r"(?<!\*)(\*{1,3})(?!\s)" + INLINE + r"(?<!\s)\1"),
     re.compile(r"(?<![\w_])(_{1,3})(?!\s)" + INLINE + r"(?<!\s)\1(?!\w)"),
 )
 # Capitals exclude the multiplication sign (U+00D7) that sits inside À-Þ.
@@ -383,6 +393,26 @@ def link_target(url):
     return url
 
 
+def split_link_targets(text, masked):
+    """Return the Markdown link targets that are not web URLs, and the text with them masked."""
+    targets, kept, pos = Counter(), [], 0
+    m = LINK_TARGET.search(text)
+    while m:
+        run, start = (m.group(1), m.start(1)) if m.group(1) else (m.group(2), m.start(2))
+        if run.startswith("<"):  # <docs/a b.md> may hold spaces; it ends at its >
+            close = text.find(">", start)
+            target = text[start:close + 1] if close != -1 and "\n" not in text[start:close] else ""
+        else:
+            target = link_target(run) if m.group(1) else run
+        if target and not WEB.match(target):
+            targets[target] += 1
+            kept += [text[pos:start], mask(target, masked)]
+            pos = start + len(target)
+        m = LINK_TARGET.search(text, max(start + len(target), m.start() + 1))
+    kept.append(text[pos:])
+    return targets, "".join(kept)
+
+
 def strip_protected(text):
     """Split a text into its protected spans, the prose left over, and the masked spans."""
     # A private use character already in the text stands for itself.
@@ -392,12 +422,13 @@ def strip_protected(text):
     # Blockquote markers in the prose are dropped (code keeps its own).
     spans, body = split_inline_code(BLOCKQUOTE.sub("", body), masked)
     facts["inline_code"] = Counter(spans)
+    urls, body = split_link_targets(body, masked)
     # The search resumes where each URL ends, so a match cut short (two adjacent
     # links) still finds the URL after the cut. A URL stops at an inline-code
     # placeholder but keeps a private use character the text itself contains.
     stops = "".join(c for c, span in masked.items() if span != c)
     url_pattern = re.compile(URL_START + stops + "]+") if stops else URL
-    urls, kept, pos = Counter(), [], 0
+    kept, pos = [], 0
     m = url_pattern.search(body)
     while m:
         if body.endswith("](", 0, m.start()):
@@ -416,12 +447,22 @@ def strip_protected(text):
     return facts, "".join(kept), masked
 
 
+def unwrap(m):
+    """Keep what a marker pair encloses, with a space where removal would join words."""
+    text, inner = m.string, m.group(2)
+    before = text[m.start() - 1] if m.start() else " "
+    after = text[m.end()] if m.end() < len(text) else " "
+    def joins(a, b):
+        return (a.isalnum() or a == "_") and (b.isalnum() or b == "_")
+    return (" " if joins(before, inner[0]) else "") + inner + (" " if joins(inner[-1], after) else "")
+
+
 def strip_emphasis(text):
     """Remove paired bold and italic markers, keeping the words they enclose."""
     for _ in range(3):  # each pass unwraps one level of nesting (**a *b* c**)
         before = text
         for pattern in EMPHASIS:
-            text = pattern.sub(r"\2", text)
+            text = pattern.sub(unwrap, text)
         if text == before:
             break
     return text
