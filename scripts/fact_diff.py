@@ -45,6 +45,12 @@ FENCE = re.compile(r" {0,3}(`{3,}|~{3,})")
 ATX_HEADING = re.compile(r" {0,3}#{1,6}(?:[ \t]|$)")
 SETEXT_UNDERLINE = re.compile(r" {0,3}(?:=+|-+)[ \t]*$")
 THEMATIC_BREAK = re.compile(r" {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$")
+# A line that ends the paragraph before it, or starts a new block: a blank line, a
+# heading, a thematic break or setext underline, a bullet, or a masked ordered marker.
+INLINE_BLOCK_BREAK = re.compile(
+    r"\n[ \t]*(?:\n|$)|\n {0,3}(?:#{1,6}(?:[ \t]|$)|(?:[-*_=][ \t]*)+$|[-*+][ \t])|\n[ \t]*[\U000F0000-\U0010FFFF]",
+    re.M,
+)
 # A masked span (inline code, a URL) leaves a placeholder of its own, a private
 # use character that is neither a word nor a space character. A quotation that
 # starts with one still opens ('https://a.b is required.'), and a quotation is
@@ -61,9 +67,10 @@ BLANK_LINE = re.compile(r"\n[ \t]*\n")
 # spaces of any kind (a non-breaking space included) and at most one line
 # break, indented or not, but never a blank line (5\u00a0kg, 5\n  ms, p  =  0.003).
 GAP = r"[^\S\n]*(?:\n[^\S\n]*)?"
-# A URL of any scheme (https://, ftp://, ssh://). A scheme starts a token and is
-# short, so a long word without :// is scanned once, not once per letter.
-URL_START = r'(?<![A-Za-z0-9+.-])[A-Za-z][A-Za-z0-9+.-]{0,31}://[^\s<>"'  # completed with the placeholders a URL stops at
+# A URL of any scheme (https://, ftp://, ssh://), also right after punctuation
+# (...https://a.b). A scheme starts after a non-alphanumeric and is at most 32
+# characters, so a long word without :// is scanned once, not once per letter.
+URL_START = r'(?<![A-Za-z0-9])[A-Za-z][A-Za-z0-9+.-]{0,31}://[^\s<>"'  # completed with the placeholders a URL stops at
 URL = re.compile(URL_START + "]+")
 # Every Markdown link target is protected with its own boundaries, web URLs
 # included: an inline target ([guide](docs/a.md), [x](#setup), [x]( https://a.b))
@@ -137,10 +144,11 @@ VERSION = re.compile(
     r"(?<![\w.])(?:[vV]\d+(?:\.\d+)*(?:[-.+][A-Za-z0-9]+)*"
     r"|\d+\.\d+\.\d+(?:[-+][0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)+)\b"
 )
+# A bare L (litre) only after a space: 2L is two times L.
 UNITS = (
     r"%|‰|°[CF]?|x|ms|µs|us|ns|s|sec|secs|min|mins|h|hr|hrs|KB|kB|MB|GB|TB|PB|Kb|Mb|Gb|"
     r"KiB|MiB|GiB|TiB|Hz|kHz|MHz|GHz|Msps|ksps|fps|px|pt|dB|dBm|mm|cm|m|km|g|kg|mg|lb|lbs|"
-    r"oz|mi|ft|V|mV|W|kW|MW|mA|mAh|Wh|kWh|mmHg|bpm|rpm|"
+    r"oz|mi|ft|mL|ml|µL|uL|(?<=\s)L|V|mV|W|kW|MW|mA|mAh|Wh|kWh|mmHg|bpm|rpm|"
     r"(?:nano|micro|milli)?seconds?|minutes?|hours?|days?|weeks?|months?|years?"
 )
 # An optional sign (ASCII hyphen-minus, Unicode minus or plus) is part of the
@@ -157,12 +165,12 @@ POWER = r"(?:[⁰¹²³⁴⁵⁶⁷⁸⁹⁻]+|(?<![x%])(?:\^-?[0-9]+|[23](?![0-
 CURRENCY = re.compile(
     r"(?:(?<![\w$€£¥₹])[+−-])?[$€£¥₹]\s?" + NUM + r"(?:\s?(?:k|K|m|M|bn|B)\b)?(?:/[A-Za-z]+" + POWER + r")?"
 )
-# A symbol may follow its amount (50 €, 50 €/hr), and is then compared as if it
-# came first (€50, €50/hr); a symbol followed by a number (5 $20) belongs to
-# that price.
+# A symbol may follow its amount (50 €, 50 M€, 50 €/hr), and is then compared as
+# if it came first (€50, €50M, €50/hr). A symbol belongs to a number after it
+# only where the price before it reads one (5 $20, 5 $ 20, not 50 €  2 nights).
 CURRENCY_AFTER = re.compile(
-    r"(?<![\w.$€£¥₹])([+−-]?)((?:\d+(?:[.,]\d+)*|\.\d+))" + GAP + r"([$€£¥₹])"
-    r"(?![$€£¥₹]|" + GAP + r"[+−-]?\.?\d)((?:/[A-Za-z]+" + POWER + r")?)(?!\w)"
+    r"(?<![\w.$€£¥₹])([+−-]?)((?:\d+(?:[.,]\d+)*|\.\d+))((?:[^\S\n]?(?:k|K|m|M|bn|B))?)" + GAP
+    + r"([$€£¥₹])(?![$€£¥₹]|\s?[+−-]?\.?\d)((?:/[A-Za-z]+" + POWER + r")?)(?!\w)"
 )
 # A rate keeps its denominator, so 30 km/h -> 30 km is a changed unit, and a
 # denominator that cannot be read still leaves the number and base unit
@@ -211,14 +219,14 @@ LABELLED = re.compile(
 LABEL_OPERATOR = {"≥": ">=", "&gt;=": ">=", "&ge;": ">=", "≤": "<=", "&lt;=": "<=", "&le;": "<=",
                   "≠": "!=", "&ne;": "!=", "&gt;": ">", "&lt;": "<"}
 # A compact dimension is one value with its sign, unit, power and denominator,
-# the unit attached, after a space or line break, or after a hyphen (-2x3,
+# the unit attached, after a space or line break, or after a hyphen but not x (-2x3,
 # 1920x1080px, 1.5x2.5cm, 3x4m², 10x20 cm, 10x20-cm, 10x20 kg/m²); 0x4601 is
 # hex, not 0 by 4601.
 DENOMINATOR = r"(?:/[A-Za-zµ°%]+" + POWER + r")?"
 DIMENSION = re.compile(
     r"(?<![\w.])([+−-]?(?!0[xX])\d+(?:\.\d+)?(?:[xX×]\d+(?:\.\d+)?)+)"
     r"(?:([A-Za-zµ°%]+" + POWER + DENOMINATOR + r")"
-    r"|(?:(?=\s)" + GAP + r"|-)((?:" + UNITS + r")" + POWER + DENOMINATOR + r")(?!\w))?(?!\w)"
+    r"|(?:(?=\s)" + GAP + r"|-(?!x\b))((?:" + UNITS + r")" + POWER + DENOMINATOR + r")(?!\w))?(?!\w)"
 )
 # A hex literal (0x4601, -0x10) is one number with its sign, compared as written.
 NUMBER = re.compile(r"(?<![\w.])(?:[+−-]?0[xX][0-9A-Fa-f]+\b|" + NUM + r"(?:%|x\b)?)")
@@ -387,7 +395,8 @@ def split_code(text, masked):
                     or THEMATIC_BREAK.match(rest))
     if code:  # an unclosed block runs to the end of the text
         kept += [hold("".join(code[0]))] + blanks
-    return blocks, "".join(kept)
+    # Code keeps its line endings (CRLF -> LF is a change); prose is read with LF.
+    return blocks, "".join(kept).replace("\r\n", "\n").replace("\r", "\n")
 
 
 def mask(span, masked):
@@ -397,6 +406,14 @@ def mask(span, masked):
         code += 1
     masked[chr(code)] = span
     return chr(code)
+
+
+def crosses_block(text, start, end):
+    """Check whether text[start:end] leaves its block: a code span ends with its paragraph,
+    heading or list item, so it never crosses a blank line, a heading, a break or a new item."""
+    if "\n" in text[start:end] and ATX_HEADING.match(text, text.rfind("\n", 0, start) + 1):
+        return True
+    return INLINE_BLOCK_BREAK.search(text, start, end) is not None
 
 
 def split_inline_code(text, masked):
@@ -411,7 +428,7 @@ def split_inline_code(text, masked):
             i = m.start() + 1
             continue
         close = re.compile(r"(?<!`)`{%d}(?!`)" % len(m.group(0))).search(text, m.end())
-        if close and not BLANK_LINE.search(text, m.end(), close.start()):
+        if close and not crosses_block(text, m.start(), close.start()):
             spans.append(text[m.start():close.end()])
             kept += [text[pos:m.start()], mask(spans[-1], masked)]
             pos = i = close.end()
@@ -535,11 +552,14 @@ def extract(text):
     facts["versions"] = Counter(m.group(0) for m in VERSION.finditer(body))
     body = VERSION.sub(" ", body)
     facts["currency"] = (Counter(re.sub(r"\s", "", m.group(0)) for m in CURRENCY.finditer(body))
-                         + Counter(m.group(1) + m.group(3) + m.group(2) + m.group(4)
+                         + Counter(m.group(1) + m.group(4) + m.group(2) + m.group(3).strip() + m.group(5)
                                    for m in CURRENCY_AFTER.finditer(body)))
     facts["quantities"] = Counter(f"{m.group(1)} {m.group(2)}" for m in QUANTITY.finditer(body))
+    # A function word before an operator is prose, not a label (Latency is now
+    # < 5 ms); the bound itself is still compared. A one-letter label (I = 5 A) is kept.
     facts["labelled"] = Counter(f"{m.group(1)} {LABEL_OPERATOR.get(m.group(2), m.group(2))} {m.group(3)}"
-                                for m in LABELLED.finditer(body))
+                                for m in LABELLED.finditer(body)
+                                if len(m.group(1)) == 1 or m.group(1).capitalize() not in FUNCTION_WORDS)
     facts["ranges"] = Counter(re.sub(r"\s", "", m.group(0)) for m in RANGE.finditer(body))
     bounds = Counter()
     for m in BOUND.finditer(body):
@@ -639,9 +659,10 @@ def main(argv):
         return 2
     # An unreadable input is a usage error (2), never a strict difference (1).
     try:
-        with open(argv[1], encoding="utf-8") as f:
+        # newline="" keeps CRLF, so a code block whose line endings change is caught.
+        with open(argv[1], encoding="utf-8", newline="") as f:
             original = f.read()
-        with open(argv[2], encoding="utf-8") as f:
+        with open(argv[2], encoding="utf-8", newline="") as f:
             rewrite = f.read()
     except (OSError, UnicodeDecodeError) as error:
         print(f"fact_diff: cannot read input: {error}", file=sys.stderr)
