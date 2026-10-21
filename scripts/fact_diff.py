@@ -39,6 +39,7 @@ from collections import Counter
 # span closes only on a backtick run of its opener's length.
 QUOTE_MARKER = re.compile(r" {0,3}>[ \t]?")
 LIST_ITEM = re.compile(r"( {0,3})([-*+]|\d{1,9}[.)])( +)(?=\S)")
+EMPTY_ITEM = re.compile(r"( {0,3})([-*+]|\d{1,9}[.)])[ \t]*$")  # its content starts on the next line
 FENCE = re.compile(r" {0,3}(`{3,}|~{3,})")
 ATX_HEADING = re.compile(r" {0,3}#{1,6}(?:[ \t]|$)")
 SETEXT_UNDERLINE = re.compile(r" {0,3}(?:=+|-+)[ \t]*$")
@@ -64,9 +65,15 @@ URL = re.compile(URL_START + "]+")
 # Every Markdown link target is protected with its own boundaries, web URLs
 # included: an inline target ([guide](docs/a.md), [x](#setup), [x]( https://a.b))
 # and a reference definition ([id]: https://a.b/c!), each possibly on the next
-# line, but not a footnote ([^1]: text). Angle brackets (<https://a.b>) are not
+# line. A definition holds only its target and an optional title on its line, and
+# may sit inside a list item; a footnote ([^1]: text) or a labelled sentence
+# ([Status]: Glad to help.) is not one. Angle brackets (<https://a.b>) are not
 # part of the counted target.
-LINK_TARGET = re.compile(r"\]\(" + GAP + r"(\S+)|(?m:^)[ \t]{0,3}\[(?!\^)[^\]\n]+\]:" + GAP + r"(\S+)")
+LINK_TARGET = re.compile(
+    r"\]\(" + GAP + r"(\S+)"
+    r"|(?m:^)[ \t]*(?:(?:[-*+]|\d{1,9}[.)])[ \t]+)?\[(?!\^)[^\]\n]+\]:" + GAP + r"(\S+)"
+    r"""(?=[ \t]*(?:"[^"\n]*"|'[^'\n]*'|\([^)\n]*\))?[ \t]*(?m:$))"""
+)
 # Trailing sentence punctuation is not part of a URL (as in GitHub's autolinks),
 # nor is a closing quotation mark (“see https://a.b/c”), and a closing bracket is
 # part of it only when the URL opened one: a_(x)/old. A Markdown link target
@@ -151,7 +158,9 @@ QUANTITY = re.compile(
     r"(?<![\w.])(" + NUM + r")" + GAP + r"((?:" + UNITS + r")" + POWER + r"(?:/[A-Za-zµ°%]+" + POWER + r")?)(?![\w])"
 )
 # A period after a range ends the sentence unless a digit follows (0.05–0.5.).
-RANGE = re.compile(r"(?<![\w.])" + NUM + GAP + "[–—-]" + GAP + NUM + r"(?!\w|\.\d)")
+# A range may wrap after its dash but not before it: a line that starts with a
+# dash is a list item (- 5\n- 10 is two values, not 5-10).
+RANGE = re.compile(r"(?<![\w.])" + NUM + r"[^\S\n]*[–—-]" + GAP + NUM + r"(?!\w|\.\d)")
 BOUND_WORDS = (
     "more than", "greater than", "less than", "fewer than", "at least", "at most", "no more than",
     "no fewer than", "no less than", "no greater than", "not more than", "not fewer than",
@@ -186,9 +195,14 @@ LABELLED = re.compile(
 # Spellings of one operator compare equal, as they do for bounds: x ≥ 5 is x >= 5.
 LABEL_OPERATOR = {"≥": ">=", "&gt;=": ">=", "&ge;": ">=", "≤": "<=", "&lt;=": "<=", "&le;": "<=",
                   "≠": "!=", "&ne;": "!=", "&gt;": ">", "&lt;": "<"}
-# A hex literal (0x4601) and a compact dimension with any unit written onto it
-# (1920x1080, 10x20x30cm) are one number each, compared as written.
-NUMBER = re.compile(r"(?<![\w.])(?:0[xX][0-9A-Fa-f]+\b|\d+(?:[xX×]\d+)+(?:[A-Za-zµ°%]+)?(?!\w)|" + NUM + r"(?:%|x\b)?)")
+# A compact dimension is one value with its unit and power, attached or after a
+# space (1920x1080px, 1.5x2.5cm, 3x4m², 10x20 cm); 0x4601 is hex, not 0 by 4601.
+DIMENSION = re.compile(
+    r"(?<![\w.])(?!0[xX])(\d+(?:\.\d+)?(?:[xX×]\d+(?:\.\d+)?)+)"
+    r"(?:([A-Za-zµ°%]+" + POWER + r")|[^\S\n]+((?:" + UNITS + r")" + POWER + r")(?!\w))?(?!\w)"
+)
+# A hex literal (0x4601) is one number, compared as written.
+NUMBER = re.compile(r"(?<![\w.])(?:0[xX][0-9A-Fa-f]+\b|" + NUM + r"(?:%|x\b)?)")
 # Bold and italic are removed where a marker run opens and the same run closes
 # it within a paragraph, as Markdown reads them: an asterisk pair may touch a
 # word (**5**kg), an underscore pair may not (timeout_, IRDN_RAN). Where removing
@@ -298,6 +312,10 @@ def split_code(text):
                 containers.append((width, list_kind(m)))
                 rest, para = rest[width:], False
                 continue
+            m = EMPTY_ITEM.match(rest)
+            if m and not para:  # an empty item never interrupts a paragraph
+                containers.append((m.end(2) + 1, list_kind(m)))
+                rest = ""
             break
         if code:  # an open indented block
             if not rest.strip():
@@ -488,9 +506,14 @@ def extract(text):
         num = re.sub(r"\s", "", num)  # a price may be written $ 40
         bounds[f"{BOUND_CLASS[' '.join(word.lower().split())]} {num}"] += 1
     facts["bounds"] = bounds
+    # A dimension is read last, so a bound or label beside it reads as before
+    # (about 10x20 cm is ~ 10; from 5x15 = 75 has no label).
+    dimensions = Counter(" ".join(filter(None, (m.group(1), m.group(2) or m.group(3))))
+                         for m in DIMENSION.finditer(body))
+    body = DIMENSION.sub(" ", body)
     # Numbers are compared exactly as written: 3,000 and 3000 differ, and so do
     # 1,5 and 1.5. A rewrite should not reformat data (hard rule 4).
-    facts["numbers"] = Counter(m.group(0).rstrip(".") for m in NUMBER.finditer(body))
+    facts["numbers"] = dimensions + Counter(m.group(0).rstrip(".") for m in NUMBER.finditer(body))
     facts["number_words"] = Counter(m.group(0).lower() for m in NUMBER_WORDS.finditer(body))
     facts["negations"] = len(NEGATION.findall(body))
     facts["hedges"] = len(HEDGE.findall(body))
