@@ -7,6 +7,7 @@ Strict checks (any difference prints FAIL and exits 1): code blocks (fenced
 or indented), inline code, URLs and Markdown link targets, quoted passages (each
 compared by count, so a repeated span that changes or goes is caught), numbers
 exactly as written with their signs (-20, −5.3, .05, 1e-3, 0x4601, 1920x1080),
+but not a numbered list's item numbers (1. Install), which are formatting,
 version strings (v2.1, 2.4.0-beta),
 number+unit pairs (36 MB, 30 km/h, 5 kg/m³, 5 seconds, -$14, $15/hr), labelled values
 (p = 0.003, x >= 5), number ranges (2019-2021), and bounds on numbers (over
@@ -207,8 +208,8 @@ DIMENSION = re.compile(
     r"(?:([A-Za-zµ°%]+" + POWER + DENOMINATOR + r")"
     r"|[^\S\n]+((?:" + UNITS + r")" + POWER + DENOMINATOR + r")(?!\w))?(?!\w)"
 )
-# A hex literal (0x4601) is one number, compared as written.
-NUMBER = re.compile(r"(?<![\w.])(?:0[xX][0-9A-Fa-f]+\b|" + NUM + r"(?:%|x\b)?)")
+# A hex literal (0x4601, -0x10) is one number with its sign, compared as written.
+NUMBER = re.compile(r"(?<![\w.])(?:[+−-]?0[xX][0-9A-Fa-f]+\b|" + NUM + r"(?:%|x\b)?)")
 # Bold and italic are removed where a marker run opens and the same run closes
 # it within a paragraph, as Markdown reads them: an asterisk pair may touch a
 # word (**5**kg), an underscore pair may not (timeout_, IRDN_RAN). Where removing
@@ -236,7 +237,7 @@ NUMBER_WORDS = re.compile(
     r"hundred|thousand|million|billion|half|dozen|double|triple|twice|percent|single|both)\b",
     re.I,
 )
-NEGATION = re.compile(r"\b(not|no|never|none|nothing|neither|nor|without|cannot)\b|n't\b", re.I)
+NEGATION = re.compile(r"\b(not|no|never|none|nothing|neither|nor|without|cannot)\b|n['’]t\b", re.I)
 HEDGE = re.compile(
     r"\b(may|might|could|possibly|perhaps|likely|unlikely|probably|potential(?:ly)?|"
     r"suggests?|appears?|seems?|believed?|guess|maybe|approximately)\b",
@@ -260,16 +261,29 @@ def list_kind(item):
     return marker if marker in "-*+" else marker[-1]
 
 
+def drop_markers(raw, opened, markers):
+    """Blank the ordered-list markers a prose line opened, in order, and count their numbers."""
+    pos = 0
+    for marker in opened:
+        m = re.compile(r"(?<!\d)" + re.escape(marker)).search(raw, pos)
+        if m:
+            raw, pos = raw[:m.start()] + " " * len(marker) + raw[m.end():], m.end()
+            markers[marker[:-1]] += 1  # 10. counts as 10
+    return raw
+
+
 def split_code(text):
-    """Return the code blocks (fenced or indented) as written, and the text outside them."""
+    """Return the code blocks (fenced or indented) as written, the text outside them,
+    and the numbers of the ordered-list markers removed from that text."""
     blocks, kept, blanks = [], [], []
+    markers = Counter()  # an ordered list's numbers are formatting, not facts
     # ">" for a blockquote, or (content indent, list kind) for a list item; outermost first
     containers = []
     code = None      # the open code block: [lines, container depth, closing fence or None]
     para = False     # the last line was paragraph text, which a lazy line may continue
     for raw in text.splitlines(keepends=True):
         rest = raw.rstrip("\r\n").expandtabs(4)
-        matched = 0
+        matched, opened = 0, []
         for container in containers:
             if container == ">":
                 m = QUOTE_MARKER.match(rest)
@@ -316,11 +330,13 @@ def split_code(text):
                 # Five or more spaces after the marker start indented code one column in.
                 width = m.end() if len(m.group(3)) <= 4 else m.end(2) + 1
                 containers.append((width, list_kind(m)))
+                opened += [m.group(2)] if m.group(2) not in "-*+" else []
                 rest, para = rest[width:], False
                 continue
             m = EMPTY_ITEM.match(rest)
             if m and not para:  # an empty item never interrupts a paragraph
                 containers.append((m.end(2) + 1, list_kind(m)))
+                opened += [m.group(2)] if m.group(2) not in "-*+" else []
                 rest = ""
             break
         if code:  # an open indented block
@@ -335,7 +351,7 @@ def split_code(text):
             kept += ["\n"] + blanks
             code, blanks = None, []
         if not rest.strip():
-            kept.append(raw)
+            kept.append(drop_markers(raw, opened, markers))
             para = False
             continue
         if indent_of(rest) >= 4 and not para:
@@ -347,14 +363,14 @@ def split_code(text):
             closer = re.compile(r" {0,3}" + re.escape(m.group(1)[0]) + "{%d,}[ \t]*$" % len(m.group(1)))
             code, para = [[raw], len(containers), closer], False
             continue
-        kept.append(raw)
+        kept.append(drop_markers(raw, opened, markers))
         # A heading or thematic break ends the paragraph: Title\n---, # Title, ***.
         para = not ((para and SETEXT_UNDERLINE.match(rest)) or ATX_HEADING.match(rest)
                     or THEMATIC_BREAK.match(rest))
     if code:  # an unclosed block runs to the end of the text
         blocks.append("".join(code[0]))
         kept += ["\n"] + blanks
-    return blocks, "".join(kept)
+    return blocks, "".join(kept), markers
 
 
 def mask(span, masked):
@@ -442,8 +458,9 @@ def strip_protected(text):
     """Split a text into its protected spans, the prose left over, and the masked spans."""
     # A private use character already in the text stands for itself.
     facts, masked = {}, {c: c for c in MASKED.findall(text)}
-    blocks, body = split_code(text)
+    blocks, body, markers = split_code(text)
     facts["code_blocks"] = Counter(blocks)
+    facts["list_markers"] = markers
     # Blockquote markers in the prose are dropped (code keeps its own).
     spans, body = split_inline_code(BLOCKQUOTE.sub("", body), masked)
     facts["inline_code"] = Counter(spans)
@@ -580,6 +597,11 @@ def diff(original, rewrite):
             added = sorted(n for n in b[kind] if not kept(n, original, a["prose"]))
         elif kind in COUNTED:
             lost, added = count_changes(a[kind], b[kind])
+        elif kind == "numbers":
+            # A list marker is formatting (P18), so a number may become one or
+            # stop being one: 1) install, 2) run may become a numbered list.
+            lost = sorted(set(a[kind]) - set(b[kind]) - set(b["list_markers"]))
+            added = sorted(set(b[kind]) - set(a[kind]) - set(a["list_markers"]))
         else:
             # Repeating a fact is not adding one, so presence is compared here;
             # fewer repetitions are reported separately for review.
