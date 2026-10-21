@@ -65,14 +65,16 @@ URL = re.compile(URL_START + "]+")
 # Every Markdown link target is protected with its own boundaries, web URLs
 # included: an inline target ([guide](docs/a.md), [x](#setup), [x]( https://a.b))
 # and a reference definition ([id]: https://a.b/c!), each possibly on the next
-# line. A definition holds only its target and an optional title on its line, and
-# may sit inside a list item; a footnote ([^1]: text) or a labelled sentence
-# ([Status]: Glad to help.) is not one. Angle brackets (<https://a.b>) are not
-# part of the counted target.
+# line. A definition holds only its target and an optional title on its line (a
+# title may hold escapes and run onto the next line), and may sit inside a list
+# item; a footnote ([^1]: text) or a labelled sentence ([Status]: Glad to help.)
+# is not one. A target in angle brackets may hold spaces (<docs/a b.md>), and the
+# brackets are not part of the counted target.
 LINK_TARGET = re.compile(
     r"\]\(" + GAP + r"(\S+)"
-    r"|(?m:^)[ \t]*(?:(?:[-*+]|\d{1,9}[.)])[ \t]+)?\[(?!\^)[^\]\n]+\]:" + GAP + r"(\S+)"
-    r"""(?=[ \t]*(?:"[^"\n]*"|'[^'\n]*'|\([^)\n]*\))?[ \t]*(?m:$))"""
+    r"|(?m:^)[ \t]*(?:(?:[-*+]|\d{1,9}[.)])[ \t]+)?\[(?!\^)[^\]\n]+\]:" + GAP + r"(<[^>\n]*>|\S+)"
+    r"""(?=[ \t]*(?:"(?:[^"\\\n]|\\.|\n(?![^\S\n]*\n))*"|'(?:[^'\\\n]|\\.|\n(?![^\S\n]*\n))*'"""
+    r"""|\((?:[^()\\\n]|\\.|\n(?![^\S\n]*\n))*\))?[ \t]*(?m:$))"""
 )
 # Trailing sentence punctuation is not part of a URL (as in GitHub's autolinks),
 # nor is a closing quotation mark (“see https://a.b/c”), and a closing bracket is
@@ -158,9 +160,10 @@ QUANTITY = re.compile(
     r"(?<![\w.])(" + NUM + r")" + GAP + r"((?:" + UNITS + r")" + POWER + r"(?:/[A-Za-zµ°%]+" + POWER + r")?)(?![\w])"
 )
 # A period after a range ends the sentence unless a digit follows (0.05–0.5.).
-# A range may wrap after its dash but not before it: a line that starts with a
-# dash is a list item (- 5\n- 10 is two values, not 5-10).
-RANGE = re.compile(r"(?<![\w.])" + NUM + r"[^\S\n]*[–—-]" + GAP + NUM + r"(?!\w|\.\d)")
+# A range may wrap around an en or em dash (5\n–10), but a hyphen stays on the
+# first line: one that starts a line is a list marker or a sign (- 5\n- 10 is
+# two values, not 5-10).
+RANGE = re.compile(r"(?<![\w.])" + NUM + r"(?:[^\S\n]*-|" + GAP + r"[–—])" + GAP + NUM + r"(?!\w|\.\d)")
 BOUND_WORDS = (
     "more than", "greater than", "less than", "fewer than", "at least", "at most", "no more than",
     "no fewer than", "no less than", "no greater than", "not more than", "not fewer than",
@@ -195,11 +198,14 @@ LABELLED = re.compile(
 # Spellings of one operator compare equal, as they do for bounds: x ≥ 5 is x >= 5.
 LABEL_OPERATOR = {"≥": ">=", "&gt;=": ">=", "&ge;": ">=", "≤": "<=", "&lt;=": "<=", "&le;": "<=",
                   "≠": "!=", "&ne;": "!=", "&gt;": ">", "&lt;": "<"}
-# A compact dimension is one value with its unit and power, attached or after a
-# space (1920x1080px, 1.5x2.5cm, 3x4m², 10x20 cm); 0x4601 is hex, not 0 by 4601.
+# A compact dimension is one value with its sign, unit, power and denominator,
+# the unit attached or after a space (-2x3, 1920x1080px, 1.5x2.5cm, 3x4m²,
+# 10x20 cm, 10x20 kg/m²); 0x4601 is hex, not 0 by 4601.
+DENOMINATOR = r"(?:/[A-Za-zµ°%]+" + POWER + r")?"
 DIMENSION = re.compile(
-    r"(?<![\w.])(?!0[xX])(\d+(?:\.\d+)?(?:[xX×]\d+(?:\.\d+)?)+)"
-    r"(?:([A-Za-zµ°%]+" + POWER + r")|[^\S\n]+((?:" + UNITS + r")" + POWER + r")(?!\w))?(?!\w)"
+    r"(?<![\w.])([+−-]?(?!0[xX])\d+(?:\.\d+)?(?:[xX×]\d+(?:\.\d+)?)+)"
+    r"(?:([A-Za-zµ°%]+" + POWER + DENOMINATOR + r")"
+    r"|[^\S\n]+((?:" + UNITS + r")" + POWER + DENOMINATOR + r")(?!\w))?(?!\w)"
 )
 # A hex literal (0x4601) is one number, compared as written.
 NUMBER = re.compile(r"(?<![\w.])(?:0[xX][0-9A-Fa-f]+\b|" + NUM + r"(?:%|x\b)?)")
