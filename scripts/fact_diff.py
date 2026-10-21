@@ -9,7 +9,7 @@ compared by count, so a repeated span that changes or goes is caught), numbers
 exactly as written with their signs (-20, −5.3, .05, 1e-3, 0x4601, 1920x1080),
 but not a numbered list's item numbers (1. Install), which are formatting,
 version strings (v2.1, 2.4.0-beta),
-number+unit pairs (36 MB, 30 km/h, 5 kg/m³, 5 seconds, -$14, $15/hr), labelled values
+number+unit pairs (36 MB, 30 km/h, 5 kg/m³, 5 seconds, -$14, $15/hr, 50 €), labelled values
 (p = 0.003, x >= 5), number ranges (2019-2021), and bounds on numbers (over
 40,000, just over 40,000, about 36, up to 30, <= 5).
 Review lines (exit status unaffected): number words, capitalized names
@@ -103,8 +103,9 @@ EMPHASIS_BEFORE = re.compile(r"([*_~]+)[(\[\"'“‘]?$")
 # together with the character after it, so an even run (\\) is literal and the
 # mark after it is real, while an escaped mark (\' or \") is part of the passage
 # and never ends it. A passage between two escaped double marks (\"text\") is a
-# quotation too. The marks themselves are not compared, so the curly-to-straight
-# fix of P20 passes.
+# quotation too. A straight double mark right after a digit is an inch mark
+# (12" wide) and never opens a passage. The marks themselves are not compared,
+# so the curly-to-straight fix of P20 passes.
 PARA = r"(?:(?!\n[ \t]*\n)[^{q}])"
 PLAIN = r"(?:(?!\n[ \t]*\n)[^{q}\\])"  # a straight passage's text; a backslash only as an escape
 POSSESSIVE = r"(?<=s){q}(?=(?:(?!\n[ \t]*\n)[^{q}{o}])*[^\s{q}]{q}(?!\w))"
@@ -114,7 +115,7 @@ YEAR = r"(?!\d{2}s\b)"
 ESCAPED = r"\\(?:[^\n]|\n(?![ \t]*\n))"
 EVEN_BACKSLASHES = r"(?<!\\)(?:\\\\)*"
 QUOTE = re.compile(
-    EVEN_BACKSLASHES + r'"((?:' + ESCAPED + "|" + PLAIN.format(q='"') + r')+)"'
+    EVEN_BACKSLASHES + r'(?<!\d)"((?:' + ESCAPED + "|" + PLAIN.format(q='"') + r')+)"'
     # Between escaped marks, an escaped backslash takes an escaped mark right
     # after it as text (\"say \\\" now\"), so it never closes the passage. Each
     # pair of backslashes matches one way only, so nothing backtracks.
@@ -153,6 +154,11 @@ POWER = r"(?:[⁰¹²³⁴⁵⁶⁷⁸⁹⁻]+|(?<![x%])(?:\^-?[0-9]+|[23](?![0-
 # and so is a rate with its power ($15/hr, $15/m²), as for units.
 CURRENCY = re.compile(
     r"(?:(?<![\w$€£¥₹])[+−-])?[$€£¥₹]\s?" + NUM + r"(?:\s?(?:k|K|m|M|bn|B)\b)?(?:/[A-Za-z]+" + POWER + r")?"
+)
+# A symbol may follow its amount (50 €), and is then compared as if it came
+# first (€50); a symbol followed by a number (5 $20) belongs to that price.
+CURRENCY_AFTER = re.compile(
+    r"(?<![\w.$€£¥₹])([+−-]?)((?:\d+(?:[.,]\d+)*|\.\d+))[^\S\n]?([$€£¥₹])(?![\w$€£¥₹]|[^\S\n]?[+−-]?\.?\d)"
 )
 # A rate keeps its denominator, so 30 km/h -> 30 km is a changed unit, and a
 # denominator that cannot be read still leaves the number and base unit
@@ -278,6 +284,13 @@ def split_code(text, masked):
     An ordered list's item numbers (1. Install) are formatting, not facts: they
     are masked in that text, so a quotation still restores them."""
     blocks, kept, blanks = [], [], []
+
+    def hold(block):
+        """Record a code block; a placeholder on its own paragraph keeps its place, so a
+        quotation that spans the block puts it back and a swap of two blocks is caught."""
+        blocks.append(block)
+        return "\n" + mask(block, masked) + "\n\n"
+
     # ">" for a blockquote, or (content indent, list kind) for a list item; outermost first
     containers = []
     code = None      # the open code block: [lines, container depth, closing fence or None]
@@ -309,14 +322,12 @@ def split_code(text, masked):
             del containers[matched:]
             para = False
         if code and code[1] > len(containers):  # its container closed, so it did too
-            blocks.append("".join(code[0]))
-            kept += ["\n"] + blanks
+            kept += [hold("".join(code[0]))] + blanks
             code, blanks = None, []
         if code and code[2]:
             code[0].append(raw)
             if code[2].match(rest):
-                blocks.append("".join(code[0]))
-                kept.append("\n")
+                kept.append(hold("".join(code[0])))
                 code = None
             continue
         # New containers; four columns in is code or paragraph text, never a marker.
@@ -349,8 +360,7 @@ def split_code(text, masked):
                 code[0] += blanks + [raw]
                 blanks = []
                 continue
-            blocks.append("".join(code[0]))
-            kept += ["\n"] + blanks
+            kept += [hold("".join(code[0]))] + blanks
             code, blanks = None, []
         if not rest.strip():
             kept.append(mask_markers(raw, opened, masked))
@@ -370,8 +380,7 @@ def split_code(text, masked):
         para = not ((para and SETEXT_UNDERLINE.match(rest)) or ATX_HEADING.match(rest)
                     or THEMATIC_BREAK.match(rest))
     if code:  # an unclosed block runs to the end of the text
-        blocks.append("".join(code[0]))
-        kept += ["\n"] + blanks
+        kept += [hold("".join(code[0]))] + blanks
     return blocks, "".join(kept)
 
 
@@ -519,7 +528,8 @@ def extract(text):
     body = strip_emphasis(body)
     facts["versions"] = Counter(m.group(0) for m in VERSION.finditer(body))
     body = VERSION.sub(" ", body)
-    facts["currency"] = Counter(re.sub(r"\s", "", m.group(0)) for m in CURRENCY.finditer(body))
+    facts["currency"] = (Counter(re.sub(r"\s", "", m.group(0)) for m in CURRENCY.finditer(body))
+                         + Counter(m.group(1) + m.group(3) + m.group(2) for m in CURRENCY_AFTER.finditer(body)))
     facts["quantities"] = Counter(f"{m.group(1)} {m.group(2)}" for m in QUANTITY.finditer(body))
     facts["labelled"] = Counter(f"{m.group(1)} {LABEL_OPERATOR.get(m.group(2), m.group(2))} {m.group(3)}"
                                 for m in LABELLED.finditer(body))
