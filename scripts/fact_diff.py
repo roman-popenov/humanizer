@@ -46,6 +46,7 @@ THEMATIC_BREAK = re.compile(r" {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$")
 # use character that is neither a word nor a space character. A quotation that
 # starts with one still opens ('https://a.b is required.'), and a quotation is
 # compared with its spans put back, so swapping two of them inside it is caught.
+# A private use character the text already contains is never a placeholder.
 MASK_BASE = 0xF0000
 MASKED = re.compile("[\U000F0000-\U0010FFFF]")
 BLOCKQUOTE = re.compile(r"(?m)^ {0,3}(?:>[ \t]?)+")
@@ -74,21 +75,24 @@ EMPHASIS_BEFORE = re.compile(r"([*_~]+)[(\[\"'“‘]?$")
 # single mark in the paragraph closes rather than opens: 'the students' books
 # are here'. An abbreviated decade ('90s) never opens a passage; a two-digit
 # start ('12 users were fired') does, since it cannot be told from a year ('24).
-# The marks themselves are not compared, so the curly-to-straight fix of P20
-# passes.
+# A backslash-escaped straight mark (\' or \") is part of the passage and never
+# opens or closes one. The marks themselves are not compared, so the
+# curly-to-straight fix of P20 passes.
 PARA = r"(?:(?!\n[ \t]*\n)[^{q}])"
 POSSESSIVE = r"(?<=s){q}(?=(?:(?!\n[ \t]*\n)[^{q}{o}])*[^\s{q}]{q}(?!\w))"
 CURLY_POSSESSIVE = POSSESSIVE.format(q="’", o="‘")
 STRAIGHT_POSSESSIVE = POSSESSIVE.format(q="'", o="'")
 YEAR = r"(?!\d{2}s\b)"
+ESCAPED = r"\\."
 QUOTE = re.compile(
-    r'"((?:' + PARA.format(q='"') + r")+)\""
+    r'(?<!\\)"((?:' + ESCAPED + "|" + PARA.format(q='"') + r")+)(?<!\\)\""
     r"|“([^”]+)”"
     r"|«([^»]+)»"
     r"|‘" + YEAR + r"((?:" + PARA.format(q="’") + r"|’(?=\w)|" + CURLY_POSSESSIVE + r")+?)"
     r"(?!" + CURLY_POSSESSIVE + r")’(?!\w)"
-    r"|(?<![\w'’])'(?=\S)" + YEAR + r"((?:" + PARA.format(q="'") + r"|'(?=\w)|" + STRAIGHT_POSSESSIVE + r")+?)"
-    r"(?!" + STRAIGHT_POSSESSIVE + r")'(?!\w)"
+    r"|(?<![\w'’\\])'(?=\S)" + YEAR
+    + r"((?:" + ESCAPED + "|" + PARA.format(q="'") + r"|'(?=\w)|" + STRAIGHT_POSSESSIVE + r")+?)"
+    r"(?!" + STRAIGHT_POSSESSIVE + r")(?<!\\)'(?!\w)"
 )
 # A v-prefixed version, or a three-part one with a pre-release or build suffix
 # (2.4.0-beta, 1.0.0+build.5); a bare 2.4.0 is compared as a number. Either
@@ -117,7 +121,8 @@ CURRENCY = re.compile(
 QUANTITY = re.compile(
     r"(?<![\w.])(" + NUM + r")\s?((?:" + UNITS + r")(?:/[A-Za-zµ°%]+)?)(?![\w])"
 )
-RANGE = re.compile(r"(?<![\w.])" + NUM + r"\s?[–—-]\s?" + NUM + r"(?![\w.])")
+# A period after a range ends the sentence unless a digit follows (0.05–0.5.).
+RANGE = re.compile(r"(?<![\w.])" + NUM + r"\s?[–—-]\s?" + NUM + r"(?!\w|\.\d)")
 BOUND_WORDS = (
     "more than", "greater than", "less than", "fewer than", "at least", "at most", "no more than",
     "no fewer than", "no less than", "no greater than", "not more than", "not fewer than",
@@ -147,7 +152,7 @@ BOUND_CLASS = {
     "&gt;=": ">=", "&lt;=": "<=", "&ge;": ">=", "&le;": "<=", "&gt;": ">", "&lt;": "<",
 }
 LABELLED = re.compile(
-    r"(?<![\w])([A-Za-z]\w{0,10})\s?(>=|<=|!=|&gt;=|&lt;=|&ge;|&le;|&ne;|&gt;|&lt;|[=<>≤≥≠≈])\s?(" + NUM + r")"
+    r"(?<![\w])([A-Za-z]\w*)\s?(>=|<=|!=|&gt;=|&lt;=|&ge;|&le;|&ne;|&gt;|&lt;|[=<>≤≥≠≈])\s?(" + NUM + r")"
 )
 # Spellings of one operator compare equal, as they do for bounds: x ≥ 5 is x >= 5.
 LABEL_OPERATOR = {"≥": ">=", "&gt;=": ">=", "&ge;": ">=", "≤": "<=", "&lt;=": "<=", "&le;": "<=",
@@ -186,10 +191,17 @@ def can_interrupt(item):
     return item.group(2) in "-*+" or item.group(2)[:-1] == "1"
 
 
+def list_kind(item):
+    """Name the list an item belongs to: its bullet, or an ordered list's delimiter."""
+    marker = item.group(2)
+    return marker if marker in "-*+" else marker[-1]
+
+
 def split_code(text):
     """Return the code blocks (fenced or indented) as written, and the text outside them."""
     blocks, kept, blanks = [], [], []
-    containers = []  # ">" for a blockquote, or a list item's content indent; outermost first
+    # ">" for a blockquote, or (content indent, list kind) for a list item; outermost first
+    containers = []
     code = None      # the open code block: [lines, container depth, closing fence or None]
     para = False     # the last line was paragraph text, which a lazy line may continue
     for raw in text.splitlines(keepends=True):
@@ -202,14 +214,17 @@ def split_code(text):
                     break
                 rest = rest[m.end():]
             elif rest.strip():  # a blank line stays in a list item
-                if indent_of(rest) < container:
+                if indent_of(rest) < container[0]:
                     break
-                rest = rest[container:]
+                rest = rest[container[0]:]
             matched += 1
         if matched < len(containers):
             item = LIST_ITEM.match(rest)
+            # The next item of the same list (10. then 2.) starts a block; it is
+            # not a new list interrupting the paragraph.
+            sibling = item and containers[matched] != ">" and containers[matched][1] == list_kind(item)
             starts_block = (QUOTE_MARKER.match(rest) or FENCE.match(rest) or ATX_HEADING.match(rest)
-                            or THEMATIC_BREAK.match(rest) or (item and can_interrupt(item)))
+                            or THEMATIC_BREAK.match(rest) or (item and (can_interrupt(item) or sibling)))
             if para and rest.strip() and not starts_block:
                 kept.append(raw)  # a lazy continuation keeps every container open
                 continue
@@ -237,7 +252,7 @@ def split_code(text):
             if m and (not para or can_interrupt(m)):
                 # Five or more spaces after the marker start indented code one column in.
                 width = m.end() if len(m.group(3)) <= 4 else m.end(2) + 1
-                containers.append(width)
+                containers.append((width, list_kind(m)))
                 rest, para = rest[width:], False
                 continue
             break
@@ -276,9 +291,12 @@ def split_code(text):
 
 
 def mask(span, masked):
-    """Record a masked span and return the placeholder that stands for it."""
-    masked.append(span)
-    return chr(MASK_BASE + len(masked) - 1)
+    """Record a masked span and return an unused placeholder that stands for it."""
+    code = MASK_BASE + len(masked)
+    while chr(code) in masked:
+        code += 1
+    masked[chr(code)] = span
+    return chr(code)
 
 
 def split_inline_code(text, masked):
@@ -335,7 +353,8 @@ def link_target(url):
 
 def strip_protected(text):
     """Split a text into its protected spans, the prose left over, and the masked spans."""
-    facts, masked = {}, []
+    # A private use character already in the text stands for itself.
+    facts, masked = {}, {c: c for c in MASKED.findall(text)}
     blocks, body = split_code(text)
     facts["code_blocks"] = Counter(blocks)
     # Blockquote markers in the prose are dropped (code keeps its own).
@@ -365,9 +384,13 @@ def strip_protected(text):
 def extract(text):
     """Return token counts, review counts, and prose for the fact comparison."""
     facts, body, masked = strip_protected(text)
-    facts["quotes"] = Counter(MASKED.sub(lambda s: masked[ord(s.group(0)) - MASK_BASE],
-                                         next(g for g in m.groups() if g))
+    facts["quotes"] = Counter(MASKED.sub(lambda s: masked[s.group(0)], next(g for g in m.groups() if g))
                               for m in QUOTE.finditer(body))
+    # Bold and italic markers go before any value is read, so removing them
+    # (P18) changes no value and __5__ is read as 5; they also hide sentence
+    # starts from the name check. An underscore inside a word (IRDN_RAN) is not
+    # one, and removing it would invent a name.
+    body = re.sub(r"(?<!\w)[*_]{1,3}|[*_]{1,3}(?!\w)", "", body)
     facts["versions"] = Counter(m.group(0) for m in VERSION.finditer(body))
     body = VERSION.sub(" ", body)
     facts["currency"] = Counter(re.sub(r"\s", "", m.group(0)) for m in CURRENCY.finditer(body))
@@ -387,21 +410,18 @@ def extract(text):
     facts["number_words"] = Counter(m.group(0).lower() for m in NUMBER_WORDS.finditer(body))
     facts["negations"] = len(NEGATION.findall(body))
     facts["hedges"] = len(HEDGE.findall(body))
-    # Bold and italic markers hide sentence starts; an underscore inside a word
-    # (IRDN_RAN) is not one, and removing it would invent a name.
-    plain = re.sub(r"(?<!\w)[*_]{1,3}|[*_]{1,3}(?!\w)", "", body)
     # A sentence-initial word is kept as a candidate name ("Alice approved it"):
     # dropping it hid real names. Ordinary words capitalized by position are
     # compared without case (see diff), so "Moving" is kept by "moving".
     names = Counter()
-    for m in NAME.finditer(plain):
+    for m in NAME.finditer(body):
         words = m.group(0).split()
         while words and words[0].rstrip(".,'’-") in FUNCTION_WORDS:
             words = words[1:]
         if words:
             names[" ".join(words).rstrip(".,'’-")] += 1
     facts["names"] = names
-    facts["prose"] = plain  # where names were read from, for the comparison
+    facts["prose"] = body  # where names were read from, for the comparison
     return facts
 
 
