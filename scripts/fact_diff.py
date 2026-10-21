@@ -47,14 +47,15 @@ THEMATIC_BREAK = re.compile(r" {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$")
 # starts with one still opens ('https://a.b is required.'), and a quotation is
 # compared with its spans put back, so swapping two of them inside it is caught.
 # A private use character the text already contains is never a placeholder, and
-# a URL ends where a placeholder starts, so its key never holds one.
+# a URL ends where a generated placeholder starts, so its key never holds one.
 MASK_BASE = 0xF0000
 PLACEHOLDERS = "\U000F0000-\U0010FFFF"
 MASKED = re.compile("[" + PLACEHOLDERS + "]")
 BLOCKQUOTE = re.compile(r"(?m)^ {0,3}(?:>[ \t]?)+")
 BACKTICKS = re.compile(r"`+")
 BLANK_LINE = re.compile(r"\n[ \t]*\n")
-URL = re.compile(r'https?://[^\s<>"' + PLACEHOLDERS + "]+")
+URL_START = r'https?://[^\s<>"'  # completed with the placeholders a URL stops at
+URL = re.compile(URL_START + "]+")
 # Trailing sentence punctuation is not part of a URL (as in GitHub's autolinks),
 # nor is a closing quotation mark (“see https://a.b/c”), and a closing bracket is
 # part of it only when the URL opened one: a_(x)/old. A Markdown link target
@@ -93,7 +94,10 @@ ESCAPED = r"\\(?:[^\n]|\n(?![ \t]*\n))"
 EVEN_BACKSLASHES = r"(?<!\\)(?:\\\\)*"
 QUOTE = re.compile(
     EVEN_BACKSLASHES + r'"((?:' + ESCAPED + "|" + PLAIN.format(q='"') + r')+)"'
-    r"|" + EVEN_BACKSLASHES + r'\\"((?:' + PLAIN.format(q='"') + r'|\\[^"\n])+?)\\"'
+    # Between escaped marks, an escaped backslash takes an escaped mark right
+    # after it as text (\"say \\\" now\"), so it never closes the passage. Each
+    # pair of backslashes matches one way only, so nothing backtracks.
+    r"|" + EVEN_BACKSLASHES + r'\\"((?:' + PLAIN.format(q='"') + r'|\\\\(?:\\")?|\\[^"\\\n])+?)(?<!\\)\\"'
     r"|“([^”]+)”"
     r"|«([^»]+)»"
     r"|‘" + YEAR + r"((?:" + PARA.format(q="’") + r"|’(?=\w)|" + CURLY_POSSESSIVE + r")+?)"
@@ -120,20 +124,25 @@ UNITS = (
 # in a range or date (2019-2021) from being read as a sign. A leading-dot decimal
 # (.05) and an exponent (1.5e3, 1e-3) are part of the number.
 NUM = r"[+−-]?(?:\d+(?:[.,]\d+)*|\.\d+)(?:[eE][+−-]?\d+)?"
+# Between a value and its unit, label or operator: spaces and at most one line
+# break, indented or not, but never a blank line (5\n  ms, p  =  0.003).
+GAP = r"[ \t]*(?:\n[ \t]*)?"
 # A sign before the symbol (-$14) is kept, but not a range's hyphen ($10-$20),
 # and so is a rate ($15/hr), as for units.
 CURRENCY = re.compile(
     r"(?:(?<![\w$€£¥₹])[+−-])?[$€£¥₹]\s?" + NUM + r"(?:\s?(?:k|K|m|M|bn|B)\b)?(?:/[A-Za-z]+)?"
 )
 # A rate keeps its denominator, so 30 km/h -> 30 km is a changed unit.
-# A unit keeps its power (5 kg/m³), and a unit followed by / that is not a
-# denominator is not a quantity, so a changed power or denominator is caught.
-POWER = "[⁰¹²³⁴⁵⁶⁷⁸⁹⁻]*"
+# A unit keeps its power, written as a superscript, after ^, or as a bare 2 or 3
+# (5 kg/m³, 5 m^2, 5 kg/m2), so a changed power or denominator is caught; x and
+# % take no digit power, so 0x4601 and 90x128 are not quantities. A denominator
+# that cannot be read still leaves the number and base unit compared (5 kg).
+POWER = r"(?:[⁰¹²³⁴⁵⁶⁷⁸⁹⁻]+|(?<![x%])(?:\^-?[0-9]+|[23](?![0-9])))?"
 QUANTITY = re.compile(
-    r"(?<![\w.])(" + NUM + r")\s?((?:" + UNITS + r")" + POWER + r"(?:/[A-Za-zµ°%]+" + POWER + r")?)(?![\w/])"
+    r"(?<![\w.])(" + NUM + r")" + GAP + r"((?:" + UNITS + r")" + POWER + r"(?:/[A-Za-zµ°%]+" + POWER + r")?)(?![\w])"
 )
 # A period after a range ends the sentence unless a digit follows (0.05–0.5.).
-RANGE = re.compile(r"(?<![\w.])" + NUM + r"\s?[–—-]\s?" + NUM + r"(?!\w|\.\d)")
+RANGE = re.compile(r"(?<![\w.])" + NUM + GAP + "[–—-]" + GAP + NUM + r"(?!\w|\.\d)")
 BOUND_WORDS = (
     "more than", "greater than", "less than", "fewer than", "at least", "at most", "no more than",
     "no fewer than", "no less than", "no greater than", "not more than", "not fewer than",
@@ -141,13 +150,13 @@ BOUND_WORDS = (
     "about", "approximately", "around", "roughly", "nearly", "almost", "just over", "just under",
 )
 # A bound phrase may wrap onto the next line (more\nthan 5), and a bound may be
-# on a price (under €500, > $40). A negated phrase is read whole: no less than 5
+# on a price, signed or not (under €500, > $40, under -$40). A negated phrase is read whole: no less than 5
 # is >= 5, the same bound as at least 5.
-BOUNDED = r"((?:[$€£¥₹]\s?)?" + NUM + r")"
+BOUNDED = r"((?:[+−-]?[$€£¥₹]\s?)?" + NUM + r")"
 BOUND = re.compile(
     r"\b(" + "|".join(w.replace(" ", r"\s+") for w in BOUND_WORDS) + r")\s+" + BOUNDED +
     # A tilde of ~~strikethrough~~ is not "about".
-    r"|(>=|<=|&gt;=|&lt;=|&ge;|&le;|&gt;|&lt;|[<>≤≥≈]|(?<!~)~(?!~))\s?" + BOUNDED,
+    r"|(>=|<=|&gt;=|&lt;=|&ge;|&le;|&gt;|&lt;|[<>≤≥≈]|(?<!~)~(?!~))" + GAP + BOUNDED,
     re.I,
 )
 BOUND_CLASS = {
@@ -163,20 +172,23 @@ BOUND_CLASS = {
     "&gt;=": ">=", "&lt;=": "<=", "&ge;": ">=", "&le;": "<=", "&gt;": ">", "&lt;": "<",
 }
 LABELLED = re.compile(
-    r"(?<![\w])([A-Za-z]\w*)\s?(>=|<=|!=|&gt;=|&lt;=|&ge;|&le;|&ne;|&gt;|&lt;|[=<>≤≥≠≈])\s?(" + NUM + r")"
+    r"(?<![\w])([A-Za-z]\w*)" + GAP + r"(>=|<=|!=|&gt;=|&lt;=|&ge;|&le;|&ne;|&gt;|&lt;|[=<>≤≥≠≈])" + GAP + r"(" + NUM + r")"
 )
 # Spellings of one operator compare equal, as they do for bounds: x ≥ 5 is x >= 5.
 LABEL_OPERATOR = {"≥": ">=", "&gt;=": ">=", "&ge;": ">=", "≤": "<=", "&lt;=": "<=", "&le;": "<=",
                   "≠": "!=", "&ne;": "!=", "&gt;": ">", "&lt;": "<"}
-NUMBER = re.compile(r"(?<![\w.])" + NUM + r"(?:%|x\b)?")
+# A hex literal (0x4601) is one number, compared as written.
+NUMBER = re.compile(r"(?<![\w.])(?:0[xX][0-9A-Fa-f]+\b|" + NUM + r"(?:%|x\b)?)")
 # Bold and italic are removed only where a marker run opens and the same run
-# closes it, within a paragraph: **5** and __5__ give 5, while a lone marker
-# stays, so 2**10 is not 210 and timeout_ keeps its underscore. An underscore
-# run never opens or closes inside a word (IRDN_RAN).
+# closes it, within a paragraph, and neither run touches a word: **5** and
+# __5__ give 5, while a lone or in-word marker stays, so 2**10 is not 210,
+# a*2 and b*3 keep their values, and timeout_ and IRDN_RAN keep their underscores.
+# A run may sit right next to another marker, so nested emphasis (**5 *kg***)
+# unwraps one level per pass.
 INLINE = r"((?:[^\n]|\n(?![ \t]*\n))+?)"
 EMPHASIS = (
-    re.compile(r"(?<!\*)(\*{1,3})(?![\s*])" + INLINE + r"(?<![\s*])\1(?!\*)"),
-    re.compile(r"(?<![\w_])(_{1,3})(?![\s_])" + INLINE + r"(?<![\s_])\1(?![\w_])"),
+    re.compile(r"(?<![\w*])(\*{1,3})(?!\s)" + INLINE + r"(?<!\s)\1(?!\w)"),
+    re.compile(r"(?<![\w_])(_{1,3})(?!\s)" + INLINE + r"(?<!\s)\1(?!\w)"),
 )
 # Capitals exclude the multiplication sign (U+00D7) that sits inside À-Þ.
 NAME = re.compile(r"\b[A-ZÀ-ÖØ-Þ][\w'’-]*(?:[ \t]+[A-ZÀ-ÖØ-Þ][\w'’-]*)*")
@@ -381,9 +393,12 @@ def strip_protected(text):
     spans, body = split_inline_code(BLOCKQUOTE.sub("", body), masked)
     facts["inline_code"] = Counter(spans)
     # The search resumes where each URL ends, so a match cut short (two adjacent
-    # links) still finds the URL after the cut.
+    # links) still finds the URL after the cut. A URL stops at an inline-code
+    # placeholder but keeps a private use character the text itself contains.
+    stops = "".join(c for c, span in masked.items() if span != c)
+    url_pattern = re.compile(URL_START + stops + "]+") if stops else URL
     urls, kept, pos = Counter(), [], 0
-    m = URL.search(body)
+    m = url_pattern.search(body)
     while m:
         if body.endswith("](", 0, m.start()):
             url = link_target(m.group(0))
@@ -395,7 +410,7 @@ def strip_protected(text):
         urls[url] += 1
         kept += [body[pos:m.start()], mask(url, masked)]
         pos = m.start() + len(url)
-        m = URL.search(body, pos)
+        m = url_pattern.search(body, pos)
     facts["urls"] = urls
     kept.append(body[pos:])
     return facts, "".join(kept), masked
