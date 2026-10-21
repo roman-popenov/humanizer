@@ -7,7 +7,7 @@ Strict checks (any difference prints FAIL and exits 1): code blocks (fenced
 or indented), inline code, URLs, quoted passages (each compared by count, so a
 repeated span that changes or goes is caught), numbers exactly as written with
 their signs (-20, −5.3, .05, 1e-3), version strings (v2.1, 2.4.0-beta),
-number+unit pairs (36 MB, 30 km/h, 5 seconds, -$14, $15/hr), labelled values
+number+unit pairs (36 MB, 30 km/h, 5 kg/m³, 5 seconds, -$14, $15/hr), labelled values
 (p = 0.003, x >= 5), number ranges (2019-2021), and bounds on numbers (over
 40,000, just over 40,000, about 36, up to 30, <= 5).
 Review lines (exit status unaffected): number words, capitalized names
@@ -46,13 +46,15 @@ THEMATIC_BREAK = re.compile(r" {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$")
 # use character that is neither a word nor a space character. A quotation that
 # starts with one still opens ('https://a.b is required.'), and a quotation is
 # compared with its spans put back, so swapping two of them inside it is caught.
-# A private use character the text already contains is never a placeholder.
+# A private use character the text already contains is never a placeholder, and
+# a URL ends where a placeholder starts, so its key never holds one.
 MASK_BASE = 0xF0000
-MASKED = re.compile("[\U000F0000-\U0010FFFF]")
+PLACEHOLDERS = "\U000F0000-\U0010FFFF"
+MASKED = re.compile("[" + PLACEHOLDERS + "]")
 BLOCKQUOTE = re.compile(r"(?m)^ {0,3}(?:>[ \t]?)+")
 BACKTICKS = re.compile(r"`+")
 BLANK_LINE = re.compile(r"\n[ \t]*\n")
-URL = re.compile(r"https?://[^\s<>\"]+")
+URL = re.compile(r'https?://[^\s<>"' + PLACEHOLDERS + "]+")
 # Trailing sentence punctuation is not part of a URL (as in GitHub's autolinks),
 # nor is a closing quotation mark (“see https://a.b/c”), and a closing bracket is
 # part of it only when the URL opened one: a_(x)/old. A Markdown link target
@@ -75,24 +77,30 @@ EMPHASIS_BEFORE = re.compile(r"([*_~]+)[(\[\"'“‘]?$")
 # single mark in the paragraph closes rather than opens: 'the students' books
 # are here'. An abbreviated decade ('90s) never opens a passage; a two-digit
 # start ('12 users were fired') does, since it cannot be told from a year ('24).
-# A backslash-escaped straight mark (\' or \") is part of the passage and never
-# opens or closes one. The marks themselves are not compared, so the
-# curly-to-straight fix of P20 passes.
+# Straight marks honour Markdown backslash escapes: a backslash is read only
+# together with the character after it, so an even run (\\) is literal and the
+# mark after it is real, while an escaped mark (\' or \") is part of the passage
+# and never ends it. A passage between two escaped double marks (\"text\") is a
+# quotation too. The marks themselves are not compared, so the curly-to-straight
+# fix of P20 passes.
 PARA = r"(?:(?!\n[ \t]*\n)[^{q}])"
+PLAIN = r"(?:(?!\n[ \t]*\n)[^{q}\\])"  # a straight passage's text; a backslash only as an escape
 POSSESSIVE = r"(?<=s){q}(?=(?:(?!\n[ \t]*\n)[^{q}{o}])*[^\s{q}]{q}(?!\w))"
 CURLY_POSSESSIVE = POSSESSIVE.format(q="’", o="‘")
 STRAIGHT_POSSESSIVE = POSSESSIVE.format(q="'", o="'")
 YEAR = r"(?!\d{2}s\b)"
-ESCAPED = r"\\."
+ESCAPED = r"\\(?:[^\n]|\n(?![ \t]*\n))"
+EVEN_BACKSLASHES = r"(?<!\\)(?:\\\\)*"
 QUOTE = re.compile(
-    r'(?<!\\)"((?:' + ESCAPED + "|" + PARA.format(q='"') + r")+)(?<!\\)\""
+    EVEN_BACKSLASHES + r'"((?:' + ESCAPED + "|" + PLAIN.format(q='"') + r')+)"'
+    r"|" + EVEN_BACKSLASHES + r'\\"((?:' + PLAIN.format(q='"') + r'|\\[^"\n])+?)\\"'
     r"|“([^”]+)”"
     r"|«([^»]+)»"
     r"|‘" + YEAR + r"((?:" + PARA.format(q="’") + r"|’(?=\w)|" + CURLY_POSSESSIVE + r")+?)"
     r"(?!" + CURLY_POSSESSIVE + r")’(?!\w)"
     r"|(?<![\w'’\\])'(?=\S)" + YEAR
-    + r"((?:" + ESCAPED + "|" + PARA.format(q="'") + r"|'(?=\w)|" + STRAIGHT_POSSESSIVE + r")+?)"
-    r"(?!" + STRAIGHT_POSSESSIVE + r")(?<!\\)'(?!\w)"
+    + r"((?:" + ESCAPED + "|" + PLAIN.format(q="'") + r"|'(?=\w)|" + STRAIGHT_POSSESSIVE + r")+?)"
+    r"(?!" + STRAIGHT_POSSESSIVE + r")'(?!\w)"
 )
 # A v-prefixed version, or a three-part one with a pre-release or build suffix
 # (2.4.0-beta, 1.0.0+build.5); a bare 2.4.0 is compared as a number. Either
@@ -118,8 +126,11 @@ CURRENCY = re.compile(
     r"(?:(?<![\w$€£¥₹])[+−-])?[$€£¥₹]\s?" + NUM + r"(?:\s?(?:k|K|m|M|bn|B)\b)?(?:/[A-Za-z]+)?"
 )
 # A rate keeps its denominator, so 30 km/h -> 30 km is a changed unit.
+# A unit keeps its power (5 kg/m³), and a unit followed by / that is not a
+# denominator is not a quantity, so a changed power or denominator is caught.
+POWER = "[⁰¹²³⁴⁵⁶⁷⁸⁹⁻]*"
 QUANTITY = re.compile(
-    r"(?<![\w.])(" + NUM + r")\s?((?:" + UNITS + r")(?:/[A-Za-zµ°%]+)?)(?![\w])"
+    r"(?<![\w.])(" + NUM + r")\s?((?:" + UNITS + r")" + POWER + r"(?:/[A-Za-zµ°%]+" + POWER + r")?)(?![\w/])"
 )
 # A period after a range ends the sentence unless a digit follows (0.05–0.5.).
 RANGE = re.compile(r"(?<![\w.])" + NUM + r"\s?[–—-]\s?" + NUM + r"(?!\w|\.\d)")
@@ -158,6 +169,15 @@ LABELLED = re.compile(
 LABEL_OPERATOR = {"≥": ">=", "&gt;=": ">=", "&ge;": ">=", "≤": "<=", "&lt;=": "<=", "&le;": "<=",
                   "≠": "!=", "&ne;": "!=", "&gt;": ">", "&lt;": "<"}
 NUMBER = re.compile(r"(?<![\w.])" + NUM + r"(?:%|x\b)?")
+# Bold and italic are removed only where a marker run opens and the same run
+# closes it, within a paragraph: **5** and __5__ give 5, while a lone marker
+# stays, so 2**10 is not 210 and timeout_ keeps its underscore. An underscore
+# run never opens or closes inside a word (IRDN_RAN).
+INLINE = r"((?:[^\n]|\n(?![ \t]*\n))+?)"
+EMPHASIS = (
+    re.compile(r"(?<!\*)(\*{1,3})(?![\s*])" + INLINE + r"(?<![\s*])\1(?!\*)"),
+    re.compile(r"(?<![\w_])(_{1,3})(?![\s_])" + INLINE + r"(?<![\s_])\1(?![\w_])"),
+)
 # Capitals exclude the multiplication sign (U+00D7) that sits inside À-Þ.
 NAME = re.compile(r"\b[A-ZÀ-ÖØ-Þ][\w'’-]*(?:[ \t]+[A-ZÀ-ÖØ-Þ][\w'’-]*)*")
 FUNCTION_WORDS = set(
@@ -381,16 +401,25 @@ def strip_protected(text):
     return facts, "".join(kept), masked
 
 
+def strip_emphasis(text):
+    """Remove paired bold and italic markers, keeping the words they enclose."""
+    for _ in range(3):  # each pass unwraps one level of nesting (**a *b* c**)
+        before = text
+        for pattern in EMPHASIS:
+            text = pattern.sub(r"\2", text)
+        if text == before:
+            break
+    return text
+
+
 def extract(text):
     """Return token counts, review counts, and prose for the fact comparison."""
     facts, body, masked = strip_protected(text)
     facts["quotes"] = Counter(MASKED.sub(lambda s: masked[s.group(0)], next(g for g in m.groups() if g))
                               for m in QUOTE.finditer(body))
-    # Bold and italic markers go before any value is read, so removing them
-    # (P18) changes no value and __5__ is read as 5; they also hide sentence
-    # starts from the name check. An underscore inside a word (IRDN_RAN) is not
-    # one, and removing it would invent a name.
-    body = re.sub(r"(?<!\w)[*_]{1,3}|[*_]{1,3}(?!\w)", "", body)
+    # Bold and italic go before any value is read, so removing them (P18)
+    # changes no value; they also hide sentence starts from the name check.
+    body = strip_emphasis(body)
     facts["versions"] = Counter(m.group(0) for m in VERSION.finditer(body))
     body = VERSION.sub(" ", body)
     facts["currency"] = Counter(re.sub(r"\s", "", m.group(0)) for m in CURRENCY.finditer(body))
