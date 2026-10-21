@@ -55,13 +55,18 @@ MASKED = re.compile("[" + PLACEHOLDERS + "]")
 BLOCKQUOTE = re.compile(r"(?m)^ {0,3}(?:>[ \t]?)+")
 BACKTICKS = re.compile(r"`+")
 BLANK_LINE = re.compile(r"\n[ \t]*\n")
+# Between a value and its unit, label or operator, or a link and its target:
+# spaces of any kind (a non-breaking space included) and at most one line
+# break, indented or not, but never a blank line (5\u00a0kg, 5\n  ms, p  =  0.003).
+GAP = r"[^\S\n]*(?:\n[^\S\n]*)?"
 URL_START = r'https?://[^\s<>"'  # completed with the placeholders a URL stops at
 URL = re.compile(URL_START + "]+")
-# Every Markdown link target is protected, not only a web URL: an inline target
-# ([guide](docs/a.md), [x](#setup)) and a reference definition ([id]: docs/a.md),
-# but not a footnote ([^1]: text). A web URL among them is left to the URL check.
-LINK_TARGET = re.compile(r"\]\([^\S\n]*(\S+)|(?m:^)[ \t]{0,3}\[(?!\^)[^\]\n]+\]:[ \t]*(\S+)")
-WEB = re.compile(r"<?https?://")
+# Every Markdown link target is protected with its own boundaries, web URLs
+# included: an inline target ([guide](docs/a.md), [x](#setup), [x]( https://a.b))
+# and a reference definition ([id]: https://a.b/c!), each possibly on the next
+# line, but not a footnote ([^1]: text). Angle brackets (<https://a.b>) are not
+# part of the counted target.
+LINK_TARGET = re.compile(r"\]\(" + GAP + r"(\S+)|(?m:^)[ \t]{0,3}\[(?!\^)[^\]\n]+\]:" + GAP + r"(\S+)")
 # Trailing sentence punctuation is not part of a URL (as in GitHub's autolinks),
 # nor is a closing quotation mark (“see https://a.b/c”), and a closing bracket is
 # part of it only when the URL opened one: a_(x)/old. A Markdown link target
@@ -130,10 +135,6 @@ UNITS = (
 # in a range or date (2019-2021) from being read as a sign. A leading-dot decimal
 # (.05) and an exponent (1.5e3, 1e-3) are part of the number.
 NUM = r"[+−-]?(?:\d+(?:[.,]\d+)*|\.\d+)(?:[eE][+−-]?\d+)?"
-# Between a value and its unit, label or operator: spaces of any kind (a
-# non-breaking space included) and at most one line break, indented or not, but
-# never a blank line (5\u00a0kg, 5\n  ms, p  =  0.003).
-GAP = r"[^\S\n]*(?:\n[^\S\n]*)?"
 # A unit keeps its power, written as a superscript, after ^, or as a bare 2 or 3
 # (5 kg/m³, 5 m^2, 5 kg/m2), so a changed power or denominator is caught; x and
 # % take no digit power, so 0x4601 and 90x128 are not quantities.
@@ -185,9 +186,9 @@ LABELLED = re.compile(
 # Spellings of one operator compare equal, as they do for bounds: x ≥ 5 is x >= 5.
 LABEL_OPERATOR = {"≥": ">=", "&gt;=": ">=", "&ge;": ">=", "≤": "<=", "&lt;=": "<=", "&le;": "<=",
                   "≠": "!=", "&ne;": "!=", "&gt;": ">", "&lt;": "<"}
-# A hex literal (0x4601) and a compact dimension (1920x1080, 10x20x30) are one
-# number each, compared as written.
-NUMBER = re.compile(r"(?<![\w.])(?:0[xX][0-9A-Fa-f]+\b|\d+(?:[xX×]\d+)+\b|" + NUM + r"(?:%|x\b)?)")
+# A hex literal (0x4601) and a compact dimension with any unit written onto it
+# (1920x1080, 10x20x30cm) are one number each, compared as written.
+NUMBER = re.compile(r"(?<![\w.])(?:0[xX][0-9A-Fa-f]+\b|\d+(?:[xX×]\d+)+(?:[A-Za-zµ°%]+)?(?!\w)|" + NUM + r"(?:%|x\b)?)")
 # Bold and italic are removed where a marker run opens and the same run closes
 # it within a paragraph, as Markdown reads them: an asterisk pair may touch a
 # word (**5**kg), an underscore pair may not (timeout_, IRDN_RAN). Where removing
@@ -394,7 +395,7 @@ def link_target(url):
 
 
 def split_link_targets(text, masked):
-    """Return the Markdown link targets that are not web URLs, and the text with them masked."""
+    """Return the Markdown link targets, and the text with them masked."""
     targets, kept, pos = Counter(), [], 0
     m = LINK_TARGET.search(text)
     while m:
@@ -404,8 +405,8 @@ def split_link_targets(text, masked):
             target = text[start:close + 1] if close != -1 and "\n" not in text[start:close] else ""
         else:
             target = link_target(run) if m.group(1) else run
-        if target and not WEB.match(target):
-            targets[target] += 1
+        if target:
+            targets[target[1:-1] if target.startswith("<") else target] += 1
             kept += [text[pos:start], mask(target, masked)]
             pos = start + len(target)
         m = LINK_TARGET.search(text, max(start + len(target), m.start() + 1))
@@ -423,17 +424,15 @@ def strip_protected(text):
     spans, body = split_inline_code(BLOCKQUOTE.sub("", body), masked)
     facts["inline_code"] = Counter(spans)
     urls, body = split_link_targets(body, masked)
-    # The search resumes where each URL ends, so a match cut short (two adjacent
-    # links) still finds the URL after the cut. A URL stops at an inline-code
+    # A bare URL outside a link: the search resumes where each URL ends, so text
+    # trimmed from its end is searched again. A URL stops at an inline-code
     # placeholder but keeps a private use character the text itself contains.
     stops = "".join(c for c, span in masked.items() if span != c)
     url_pattern = re.compile(URL_START + stops + "]+") if stops else URL
     kept, pos = [], 0
     m = url_pattern.search(body)
     while m:
-        if body.endswith("](", 0, m.start()):
-            url = link_target(m.group(0))
-        elif body.endswith("<", 0, m.start()) and body.startswith(">", m.end()):
+        if body.endswith("<", 0, m.start()) and body.startswith(">", m.end()):
             url = m.group(0)
         else:
             before = EMPHASIS_BEFORE.search(body, max(0, m.start() - 4), m.start())
