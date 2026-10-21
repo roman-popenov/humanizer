@@ -3,15 +3,23 @@
 
 Usage: python3 fact_diff.py ORIGINAL REWRITE
 
-Strict checks (any difference prints FAIL and exits 1): code blocks (fenced
-or indented), inline code, URLs and Markdown link targets, quoted passages (each
-compared by count, so a repeated span that changes or goes is caught), numbers
-exactly as written with their signs (-20, −5.3, .05, 1e-3, 0x4601, 1920x1080),
-but not a numbered list's item numbers (1. Install), which are formatting,
-version strings (v2.1, 2.4.0-beta),
-number+unit pairs (36 MB, 30 km/h, 5 kg/m³, 5 seconds, -$14, $15/hr, 50 €), labelled values
-(p = 0.003, x >= 5), number ranges (2019-2021), and bounds on numbers (over
-40,000, just over 40,000, about 36, up to 30, <= 5).
+What it guarantees. A strict difference prints FAIL and exits 1:
+- Byte for byte, line endings included: code blocks (fenced or indented),
+  inline code spans, and quoted passages ("...", '...', “...”, «...»). Each
+  is compared by count, so a repeated span that changes or goes is caught.
+- Exactly as written: URLs of any scheme, CommonMark autolinks
+  (<mailto:a@b.c>), bare email addresses, and Markdown link targets.
+- As values, after spacing is normalised, so rewrapping or respacing never
+  fails: numbers with their signs (-20, −5.3, .05, 1e-3, -0x10), compact
+  dimensions (1920x1080px, 10x20 cm), versions (v2.1, 2.4.0-beta), numbers
+  with units and rates (36 MB, a 5-minute timeout, 30 km/h, 5 kg / m³),
+  prices (-$14, $15/hr, 50 €, 50 M€), labelled values (p = 0.003, OR = 2),
+  ranges (2019-2021), and bounds and comparisons (over 40,000, just over
+  40,000, about 36, up to 30, <= 5, != 3).
+Never a difference: Markdown formatting outside code and quotations (bold and
+italic, list markers including a numbered list's numbers, line wrapping, and a
+prose line's ending, CRLF or LF). A value or code span never reaches across a
+block (paragraph, heading, list item or quote), as in CommonMark.
 Review lines (exit status unaffected): number words, capitalized names
 (sentence-initial ones included), numbers that now appear fewer times, and
 changed counts of negations and hedges.
@@ -45,12 +53,6 @@ FENCE = re.compile(r" {0,3}(`{3,}|~{3,})")
 ATX_HEADING = re.compile(r" {0,3}#{1,6}(?:[ \t]|$)")
 SETEXT_UNDERLINE = re.compile(r" {0,3}(?:=+|-+)[ \t]*$")
 THEMATIC_BREAK = re.compile(r" {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$")
-# A line that ends the paragraph before it, or starts a new block: a blank line, a
-# heading, a thematic break or setext underline, a bullet, or a masked ordered marker.
-INLINE_BLOCK_BREAK = re.compile(
-    r"\n[ \t]*(?:\n|$)|\n {0,3}(?:#{1,6}(?:[ \t]|$)|(?:[-*_=][ \t]*)+$|[-*+][ \t])|\n[ \t]*[\U000F0000-\U0010FFFF]",
-    re.M,
-)
 # A masked span (inline code, a URL) leaves a placeholder of its own, a private
 # use character that is neither a word nor a space character. A quotation that
 # starts with one still opens ('https://a.b is required.'), and a quotation is
@@ -62,7 +64,13 @@ PLACEHOLDERS = "\U000F0000-\U0010FFFF"
 MASKED = re.compile("[" + PLACEHOLDERS + "]")
 BLOCKQUOTE = re.compile(r"(?m)^ {0,3}(?:>[ \t]?)+")
 BACKTICKS = re.compile(r"`+")
-BLANK_LINE = re.compile(r"\n[ \t]*\n")
+# A blank line, with either line ending (CRLF or LF). The block reader also puts
+# a boundary line before every block of the prose it returns (a paragraph,
+# heading, list item or quote): a placeholder that stands for nothing, so a code
+# span or a value never reaches across a block, while a quotation may and reads
+# as written.
+BLANK = r"\n[ \t\r]*\n"
+BLANK_LINE = re.compile(BLANK)
 # Between a value and its unit, label or operator, or a link and its target:
 # spaces of any kind (a non-breaking space included) and at most one line
 # break, indented or not, but never a blank line (5\u00a0kg, 5\n  ms, p  =  0.003).
@@ -72,6 +80,11 @@ GAP = r"[^\S\n]*(?:\n[^\S\n]*)?"
 # characters, so a long word without :// is scanned once, not once per letter.
 URL_START = r'(?<![A-Za-z0-9])[A-Za-z][A-Za-z0-9+.-]{0,31}://[^\s<>"'  # completed with the placeholders a URL stops at
 URL = re.compile(URL_START + "]+")
+# A CommonMark autolink of any scheme (<https://a.b/c!>, <mailto:a@b.c>) keeps
+# everything up to its >, and a bare email address is a destination too, since
+# GitHub links it.
+AUTOLINK = re.compile(r"<([A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]*)>")
+EMAIL = re.compile(r"(?<![\w.+-])[\w.+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")
 # Every Markdown link target is protected with its own boundaries, web URLs
 # included: an inline target ([guide](docs/a.md), [x](#setup), [x]( https://a.b))
 # and a reference definition ([id]: https://a.b/c!), each possibly on the next
@@ -84,7 +97,7 @@ LINK_TARGET = re.compile(
     r"\]\(" + GAP + r"(\S+)"
     r"|(?m:^)[ \t]*(?:(?:[-*+]|\d{1,9}[.)]|[" + PLACEHOLDERS + r"])[ \t]+)?\[(?!\^)[^\]\n]+\]:" + GAP + r"(<[^>\n]*>|\S+)"
     r"""(?=[ \t]*(?:"(?:[^"\\\n]|\\.|\n(?![^\S\n]*\n))*"|'(?:[^'\\\n]|\\.|\n(?![^\S\n]*\n))*'"""
-    r"""|\((?:[^()\\\n]|\\.|\n(?![^\S\n]*\n))*\))?[ \t]*(?m:$))"""
+    r"""|\((?:[^()\\\n]|\\.|\n(?![^\S\n]*\n))*\))?[ \t\r]*(?m:$))"""
 )
 # Trailing sentence punctuation is not part of a URL (as in GitHub's autolinks),
 # nor is a closing quotation mark (“see https://a.b/c”), and a closing bracket is
@@ -92,8 +105,7 @@ LINK_TARGET = re.compile(
 # ends at the parenthesis that closes it: **[API](https://a.b/c)**.
 # A trailing * _ or ~ is dropped only when the same marker opened just before
 # the URL, or just before a bracket or quote mark that opens it (**https://a.b/c**,
-# **(https://a.b/c)**), so https://a.b/user_ keeps its underscore. An autolink
-# (<https://a.b/c!>) keeps everything up to its closing >.
+# **(https://a.b/c)**), so https://a.b/user_ keeps its underscore.
 URL_TRAILING = ".,;:!?'\"”’»"
 URL_CLOSERS = {")": "(", "]": "["}
 EMPHASIS_BEFORE = re.compile(r"([*_~]+)[(\[\"'“‘]?$")
@@ -115,13 +127,13 @@ EMPHASIS_BEFORE = re.compile(r"([*_~]+)[(\[\"'“‘]?$")
 # quotation too. A straight double mark right after a digit is an inch mark
 # (12" wide) and never opens a passage. The marks themselves are not compared,
 # so the curly-to-straight fix of P20 passes.
-PARA = r"(?:(?!\n[ \t]*\n)[^{q}])"
-PLAIN = r"(?:(?!\n[ \t]*\n)[^{q}\\])"  # a straight passage's text; a backslash only as an escape
-POSSESSIVE = r"(?<=s){q}(?=(?:(?!\n[ \t]*\n)[^{q}{o}])*[^\s{q}]{q}(?!\w))"
+PARA = r"(?:(?!" + BLANK + r")[^{q}])"
+PLAIN = r"(?:(?!" + BLANK + r")[^{q}\\])"  # a straight passage's text; a backslash only as an escape
+POSSESSIVE = r"(?<=s){q}(?=(?:(?!" + BLANK + r")[^{q}{o}])*[^\s{q}]{q}(?!\w))"
 CURLY_POSSESSIVE = POSSESSIVE.format(q="’", o="‘")
 STRAIGHT_POSSESSIVE = POSSESSIVE.format(q="'", o="'")
 YEAR = r"(?!\d{2}s\b)"
-ESCAPED = r"\\(?:[^\n]|\n(?![ \t]*\n))"
+ESCAPED = r"\\(?:[^\n]|\n(?![ \t\r]*\n))"
 EVEN_BACKSLASHES = r"(?<!\\)(?:\\\\)*"
 QUOTE = re.compile(
     EVEN_BACKSLASHES + r'(?<!\d)"((?:' + ESCAPED + "|" + PLAIN.format(q='"') + r')+)"'
@@ -160,24 +172,29 @@ NUM = r"[+−-]?(?:\d+(?:[.,]\d+)*|\.\d+)(?:[eE][+−-]?\d+)?"
 # (5 kg/m³, 5 m^2, 5 kg/m2), so a changed power or denominator is caught; x and
 # % take no digit power, so 0x4601 and 90x128 are not quantities.
 POWER = r"(?:[⁰¹²³⁴⁵⁶⁷⁸⁹⁻]+|(?<![x%])(?:\^-?[0-9]+|[23](?![0-9])))?"
+# A rate's denominator, with its power: written onto the slash (kg/m³, $15/user),
+# or after a spaced slash when it is a unit (5 kg / m³ is 5 kg/m³). A spaced
+# slash before any other word separates two values (1.3 ms / overall 1.5 ms).
+DENOMINATOR = (r"(?:/[A-Za-zµ°%]+" + POWER + r"|(?: /|/ ) ?(?:" + UNITS + r")" + POWER + r"(?!\w))?")
 # A sign before the symbol (-$14) is kept, but not a range's hyphen ($10-$20),
 # and so is a rate with its power ($15/hr, $15/m²), as for units.
 CURRENCY = re.compile(
-    r"(?:(?<![\w$€£¥₹])[+−-])?[$€£¥₹]\s?" + NUM + r"(?:\s?(?:k|K|m|M|bn|B)\b)?(?:/[A-Za-z]+" + POWER + r")?"
+    r"(?:(?<![\w$€£¥₹])[+−-])?([$€£¥₹])\s?" + NUM + r"(?:\s?(?:k|K|m|M|bn|B)\b)?" + DENOMINATOR
 )
 # A symbol may follow its amount (50 €, 50 M€, 50 €/hr), and is then compared as
-# if it came first (€50, €50M, €50/hr). A symbol belongs to a number after it
-# only where the price before it reads one (5 $20, 5 $ 20, not 50 €  2 nights).
+# if it came first (€50, €50M, €50/hr). A symbol belongs to the amount written
+# onto it after it (5 $20), else to an amount before it (50 € 2 nights is €50),
+# else to an amount after it ($ 50).
 CURRENCY_AFTER = re.compile(
     r"(?<![\w.$€£¥₹])([+−-]?)((?:\d+(?:[.,]\d+)*|\.\d+))((?:[^\S\n]?(?:k|K|m|M|bn|B))?)" + GAP
-    + r"([$€£¥₹])(?![$€£¥₹]|\s?[+−-]?\.?\d)((?:/[A-Za-z]+" + POWER + r")?)(?!\w)"
+    + r"([$€£¥₹])(?![$€£¥₹]|[+−-]?\.?\d)(" + DENOMINATOR + r")(?!\w)"
 )
 # A rate keeps its denominator, so 30 km/h -> 30 km is a changed unit, and a
 # denominator that cannot be read still leaves the number and base unit
 # compared (5 kg). A hyphen may join the number and unit (a 5-minute timeout),
 # but not x, which after a hyphen is a variable (255-x), not a multiplier.
 QUANTITY = re.compile(
-    r"(?<![\w.])(" + NUM + r")(?:" + GAP + r"|-(?!x\b))((?:" + UNITS + r")" + POWER + r"(?:/[A-Za-zµ°%]+" + POWER + r")?)(?![\w])"
+    r"(?<![\w.])(" + NUM + r")(?:" + GAP + r"|-(?!x\b))((?:" + UNITS + r")" + POWER + DENOMINATOR + r")(?![\w])"
 )
 # A period after a range ends the sentence unless a digit follows (0.05–0.5.).
 # A range may wrap around an en or em dash (5\n–10), but a hyphen stays on the
@@ -192,12 +209,13 @@ BOUND_WORDS = (
 )
 # A bound phrase may wrap onto the next line (more\nthan 5), and a bound may be
 # on a price, signed or not (under €500, > $40, under -$40). A negated phrase is read whole: no less than 5
-# is >= 5, the same bound as at least 5.
+# is >= 5, the same bound as at least 5. Every comparison but = is a bound, != included,
+# so turning = into != (or < into >) fails whatever word stands before it.
 BOUNDED = r"((?:[+−-]?[$€£¥₹]\s?)?" + NUM + r")"
 BOUND = re.compile(
     r"\b(" + "|".join(w.replace(" ", r"\s+") for w in BOUND_WORDS) + r")\s+" + BOUNDED +
     # A tilde of ~~strikethrough~~ is not "about".
-    r"|(>=|<=|&gt;=|&lt;=|&ge;|&le;|&gt;|&lt;|[<>≤≥≈]|(?<!~)~(?!~))" + GAP + BOUNDED,
+    r"|(>=|<=|!=|&gt;=|&lt;=|&ge;|&le;|&ne;|&gt;|&lt;|[<>≤≥≈≠]|(?<!~)~(?!~))" + GAP + BOUNDED,
     re.I,
 )
 BOUND_CLASS = {
@@ -211,6 +229,7 @@ BOUND_CLASS = {
     "≈": "~", "nearly": "<~", "almost": "<~",
     # HTML entities, as Markdown renders them
     "&gt;=": ">=", "&lt;=": "<=", "&ge;": ">=", "&le;": "<=", "&gt;": ">", "&lt;": "<",
+    "!=": "!=", "≠": "!=", "&ne;": "!=",
 }
 LABELLED = re.compile(
     r"(?<![\w])([A-Za-z]\w*)" + GAP + r"(>=|<=|!=|&gt;=|&lt;=|&ge;|&le;|&ne;|&gt;|&lt;|[=<>≤≥≠≈])" + GAP + r"(" + NUM + r")"
@@ -222,7 +241,6 @@ LABEL_OPERATOR = {"≥": ">=", "&gt;=": ">=", "&ge;": ">=", "≤": "<=", "&lt;="
 # the unit attached, after a space or line break, or after a hyphen but not x (-2x3,
 # 1920x1080px, 1.5x2.5cm, 3x4m², 10x20 cm, 10x20-cm, 10x20 kg/m²); 0x4601 is
 # hex, not 0 by 4601.
-DENOMINATOR = r"(?:/[A-Za-zµ°%]+" + POWER + r")?"
 DIMENSION = re.compile(
     r"(?<![\w.])([+−-]?(?!0[xX])\d+(?:\.\d+)?(?:[xX×]\d+(?:\.\d+)?)+)"
     r"(?:([A-Za-zµ°%]+" + POWER + DENOMINATOR + r")"
@@ -237,7 +255,7 @@ NUMBER = re.compile(r"(?<![\w.])(?:[+−-]?0[xX][0-9A-Fa-f]+\b|" + NUM + r"(?:%|
 # so a*2 and b*3 keep both values; a lone marker stays, so 2**10 is not 210. A
 # run may sit right next to another marker, so nested emphasis (**5 *kg***)
 # unwraps one level per pass.
-INLINE = r"((?:[^\n]|\n(?![ \t]*\n))+?)"
+INLINE = r"((?:[^\n]|\n(?![ \t\r]*\n))+?)"
 EMPHASIS = (
     re.compile(r"(?<!\*)(\*{1,3})(?!\s)" + INLINE + r"(?<!\s)\1"),
     re.compile(r"(?<![\w_])(_{1,3})(?!\s)" + INLINE + r"(?<!\s)\1(?!\w)"),
@@ -293,11 +311,13 @@ def mask_markers(raw, opened, masked):
 
 
 def split_code(text, masked):
-    """Return the code blocks (fenced or indented) as written, and the text outside them.
+    """Return the code blocks (fenced or indented) as written, the text outside them,
+    and the placeholder that marks where each block of that text starts.
 
     An ordered list's item numbers (1. Install) are formatting, not facts: they
     are masked in that text, so a quotation still restores them."""
     blocks, kept, blanks = [], [], []
+    boundary = mask("", masked)
 
     def hold(block):
         """Record a code block; a placeholder on its own paragraph keeps its place, so a
@@ -380,6 +400,8 @@ def split_code(text, masked):
             kept.append(mask_markers(raw, opened, masked))
             para = False
             continue
+        # A line that does not continue a paragraph starts a block.
+        starts = not para or ATX_HEADING.match(rest) or THEMATIC_BREAK.match(rest)
         if indent_of(rest) >= 4 and not para:
             code = [[raw], len(containers), None]
             continue
@@ -389,14 +411,13 @@ def split_code(text, masked):
             closer = re.compile(r" {0,3}" + re.escape(m.group(1)[0]) + "{%d,}[ \t]*$" % len(m.group(1)))
             code, para = [[raw], len(containers), closer], False
             continue
-        kept.append(mask_markers(raw, opened, masked))
+        kept.append((boundary + "\n" if starts else "") + mask_markers(raw, opened, masked))
         # A heading or thematic break ends the paragraph: Title\n---, # Title, ***.
         para = not ((para and SETEXT_UNDERLINE.match(rest)) or ATX_HEADING.match(rest)
                     or THEMATIC_BREAK.match(rest))
     if code:  # an unclosed block runs to the end of the text
         kept += [hold("".join(code[0]))] + blanks
-    # Code keeps its line endings (CRLF -> LF is a change); prose is read with LF.
-    return blocks, "".join(kept).replace("\r\n", "\n").replace("\r", "\n")
+    return blocks, "".join(kept), boundary
 
 
 def mask(span, masked):
@@ -408,16 +429,8 @@ def mask(span, masked):
     return chr(code)
 
 
-def crosses_block(text, start, end):
-    """Check whether text[start:end] leaves its block: a code span ends with its paragraph,
-    heading or list item, so it never crosses a blank line, a heading, a break or a new item."""
-    if "\n" in text[start:end] and ATX_HEADING.match(text, text.rfind("\n", 0, start) + 1):
-        return True
-    return INLINE_BLOCK_BREAK.search(text, start, end) is not None
-
-
-def split_inline_code(text, masked):
-    """Return the inline code spans as written, and the text around them."""
+def split_inline_code(text, masked, boundary):
+    """Return the inline code spans as written, and the text around them; a span ends with its block."""
     spans, kept, pos, i = [], [], 0, 0
     while True:
         m = BACKTICKS.search(text, i)
@@ -428,7 +441,7 @@ def split_inline_code(text, masked):
             i = m.start() + 1
             continue
         close = re.compile(r"(?<!`)`{%d}(?!`)" % len(m.group(0))).search(text, m.end())
-        if close and not crosses_block(text, m.start(), close.start()):
+        if close and boundary not in text[m.end():close.start()] and not BLANK_LINE.search(text, m.end(), close.start()):
             spans.append(text[m.start():close.end()])
             kept += [text[pos:m.start()], mask(spans[-1], masked)]
             pos = i = close.end()
@@ -489,15 +502,22 @@ def split_link_targets(text, masked):
 
 
 def strip_protected(text):
-    """Split a text into its protected spans, the prose left over, and the masked spans."""
+    """Split a text into its protected spans, the prose left over, the masked spans,
+    and the placeholder that marks block boundaries in that prose."""
     # A private use character already in the text stands for itself.
     facts, masked = {}, {c: c for c in MASKED.findall(text)}
-    blocks, body = split_code(text, masked)
+    blocks, body, boundary = split_code(text, masked)
     facts["code_blocks"] = Counter(blocks)
     # Blockquote markers in the prose are dropped (code keeps its own).
-    spans, body = split_inline_code(BLOCKQUOTE.sub("", body), masked)
+    spans, body = split_inline_code(BLOCKQUOTE.sub("", body), masked, boundary)
     facts["inline_code"] = Counter(spans)
     urls, body = split_link_targets(body, masked)
+
+    def destination(m, span):
+        """Count a destination and mask it."""
+        urls[span] += 1
+        return m.group(0).replace(span, mask(span, masked), 1)
+    body = AUTOLINK.sub(lambda m: destination(m, m.group(1)), body)
     # A bare URL outside a link: the search resumes where each URL ends, so text
     # trimmed from its end is searched again. A URL stops at an inline-code
     # placeholder but keeps a private use character the text itself contains.
@@ -506,18 +526,16 @@ def strip_protected(text):
     kept, pos = [], 0
     m = url_pattern.search(body)
     while m:
-        if body.endswith("<", 0, m.start()) and body.startswith(">", m.end()):
-            url = m.group(0)
-        else:
-            before = EMPHASIS_BEFORE.search(body, max(0, m.start() - 4), m.start())
-            url = trim_url(m.group(0), before.group(1) if before else "")
+        before = EMPHASIS_BEFORE.search(body, max(0, m.start() - 4), m.start())
+        url = trim_url(m.group(0), before.group(1) if before else "")
         urls[url] += 1
         kept += [body[pos:m.start()], mask(url, masked)]
         pos = m.start() + len(url)
         m = url_pattern.search(body, pos)
-    facts["urls"] = urls
     kept.append(body[pos:])
-    return facts, "".join(kept), masked
+    body = EMAIL.sub(lambda m: destination(m, m.group(0)), "".join(kept))
+    facts["urls"] = urls
+    return facts, body, masked, boundary
 
 
 def unwrap(m):
@@ -543,23 +561,35 @@ def strip_emphasis(text):
 
 def extract(text):
     """Return token counts, review counts, and prose for the fact comparison."""
-    facts, body, masked = strip_protected(text)
-    facts["quotes"] = Counter(MASKED.sub(lambda s: masked[s.group(0)], next(g for g in m.groups() if g))
+    facts, body, masked, boundary = strip_protected(text)
+    # A quotation is compared exactly as written: the block boundaries come out
+    # and the masked spans go back in.
+    facts["quotes"] = Counter(MASKED.sub(lambda s: masked[s.group(0)], next(g for g in m.groups() if g).replace(boundary + "\n", ""))
                               for m in QUOTE.finditer(body))
     # Bold and italic go before any value is read, so removing them (P18)
     # changes no value; they also hide sentence starts from the name check.
     body = strip_emphasis(body)
+    # Spacing is never a fact: any run of spaces and line breaks reads as one
+    # space, and a blank line as a paragraph break, so rewrapping or respacing a
+    # value passes. Values stop at a paragraph break and at a block boundary.
+    body = re.sub(r"\s+", lambda m: "\n\n" if BLANK_LINE.search(m.group(0)) else " ", body)
     facts["versions"] = Counter(m.group(0) for m in VERSION.finditer(body))
     body = VERSION.sub(" ", body)
-    facts["currency"] = (Counter(re.sub(r"\s", "", m.group(0)) for m in CURRENCY.finditer(body))
-                         + Counter(m.group(1) + m.group(4) + m.group(2) + m.group(3).strip() + m.group(5)
-                                   for m in CURRENCY_AFTER.finditer(body)))
-    facts["quantities"] = Counter(f"{m.group(1)} {m.group(2)}" for m in QUANTITY.finditer(body))
-    # A function word before an operator is prose, not a label (Latency is now
-    # < 5 ms); the bound itself is still compared. A one-letter label (I = 5 A) is kept.
+    after = list(CURRENCY_AFTER.finditer(body))
+    taken = {m.start(4) for m in after}  # a symbol read with the amount before it
+    facts["currency"] = (Counter(re.sub(r"\s", "", m.group(0)) for m in CURRENCY.finditer(body)
+                                 if m.start(1) not in taken)
+                         + Counter(m.group(1) + m.group(4) + m.group(2) + re.sub(r"\s", "", m.group(3) + m.group(5))
+                                   for m in after))
+    facts["quantities"] = Counter(f"{m.group(1)} {m.group(2).replace(' ', '')}" for m in QUANTITY.finditer(body))
+    # The operator and value are always compared (as bounds); the word before the
+    # operator is compared too when it is a label: a letter (I = 5 A), a symbol in
+    # capitals (OR = 2), or a word that is not a function word (latency < 5). A
+    # function word is prose (Latency is now < 5 ms).
     facts["labelled"] = Counter(f"{m.group(1)} {LABEL_OPERATOR.get(m.group(2), m.group(2))} {m.group(3)}"
                                 for m in LABELLED.finditer(body)
-                                if len(m.group(1)) == 1 or m.group(1).capitalize() not in FUNCTION_WORDS)
+                                if len(m.group(1)) == 1 or m.group(1).isupper()
+                                or m.group(1).capitalize() not in FUNCTION_WORDS)
     facts["ranges"] = Counter(re.sub(r"\s", "", m.group(0)) for m in RANGE.finditer(body))
     bounds = Counter()
     for m in BOUND.finditer(body):
@@ -569,7 +599,7 @@ def extract(text):
     facts["bounds"] = bounds
     # A dimension is read last, so a bound or label beside it reads as before
     # (about 10x20 cm is ~ 10; from 5x15 = 75 has no label).
-    dimensions = Counter(" ".join(filter(None, (m.group(1), m.group(2) or m.group(3))))
+    dimensions = Counter(" ".join(filter(None, (m.group(1), (m.group(2) or m.group(3) or "").replace(" ", ""))))
                          for m in DIMENSION.finditer(body))
     body = DIMENSION.sub(" ", body)
     # Numbers are compared exactly as written: 3,000 and 3000 differ, and so do
