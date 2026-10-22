@@ -20,6 +20,10 @@ What it guarantees. A strict difference prints FAIL and exits 1:
   (2019-2021, 1 - 3 ms), bounds and comparisons (over 40,000, not over
   40,000, just over 40,000, about 36, up to 30, <= 5, != 3), and version
   constraints and pins (>= 2.4.0-beta, ^v2.4, ^1.2.3, ~> 1.2, == 1.2.3).
+  A sign spaced from its value is the value's own after punctuation or a word
+  such as is, to or under (is − 5 °C, is - $14), and an operator after any
+  other word or a value (size − 1, $10 - $20); closing up an operator
+  (size −1) makes a signed value, the one respacing that is a difference.
 Never a difference: Markdown formatting outside code and quotations (bold and
 italic, list markers including a numbered list's numbers, line wrapping, and a
 prose line's ending, CRLF or LF). A value or code span never reaches across a
@@ -189,11 +193,15 @@ NUM = r"(?:[+−-]|[±∓][^\S\n]?)?(?:\d+(?:[.,]\d+)*|\.\d+)(?:[eE][+−-]?\d+)
 # (5 kg/m³, 5 m^2, 5 kg/m2), so a changed power or denominator is caught; x and
 # % take no digit power, so 0x4601 and 90x128 are not quantities.
 POWER = r"(?:[⁰¹²³⁴⁵⁶⁷⁸⁹⁻]+|(?<![x%])(?:\^-?[0-9]+|[23](?![0-9])))?"
-# A plus or minus sign (not a hyphen, which may be a dash) spaced from its digits
-# is the value's own only at the start of a block or after punctuation such as
-# : ( = |, where it cannot be an operator. After a word or a value it is one:
-# 8 runs + 25 checks and size − 1 add and subtract.
-SPACED_SIGN = re.compile(r"(?m)(^|[^\w.,)\]%°‰\s])(\s*)([+−])[^\S\n]+(?=\d)")
+# A sign spaced from its value (a number or a price) is the value's own only where
+# it cannot be an operator: at the start of a block, after punctuation such as
+# : ( = |, or after a word that takes a value (is − 5 °C, fell to − 5 °C, under
+# - $14). After any other word or a value it is one: 8 runs + 25 checks, size − 1
+# and $10 - $20 add, subtract and join a range, and a dash (--, – or —) is not
+# punctuation that makes the next sign a value's: float32 -- 6 features.
+SIGN_WORDS = (r"(?i:is|was|are|were|be|been|to|at|of|from|by|between|than|and|or|about|around|near|"
+              r"below|above|under|over|reached|hit)")
+SPACED_SIGN = re.compile(r"(?m)(^|[^\w.,)\]%°‰′″$€£¥₹\s–—-]|\b" + SIGN_WORDS + r"(?=\s))(\s*)([+−-])[^\S\n]+(?=[$€£¥₹]?\d)")
 # A unit written onto its number or slash: letters in any script (kg, µF, Ω) or a sign.
 UNIT_CHARS = r"(?:[^\W\d_]|[%°‰])+"
 # A rate's denominator, step by step, spaced or not (kg/m³, $15 / user, 5 MB/秒,
