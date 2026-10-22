@@ -22,8 +22,10 @@ What it guarantees. A strict difference prints FAIL and exits 1:
   constraints and pins (>= 2.4.0-beta, ^v2.4, ^1.2.3, ~> 1.2, == 1.2.3).
   A sign spaced from its value is the value's own after punctuation or a word
   such as is, to or under (is − 5 °C, is - $14), and an operator after any
-  other word or a value (size − 1, $10 - $20); closing up an operator
-  (size −1) makes a signed value, the one respacing that is a difference.
+  other word or a value (size − 1, $10 - $20). Two respacings are therefore
+  differences: closing up such an operator (size −1 is a signed value), and
+  spacing the slash of a word rate before a price ($15/user $20/team is a
+  rate, $15 / user $20/team two values).
 Never a difference: Markdown formatting outside code and quotations (bold and
 italic, list markers including a numbered list's numbers, line wrapping, and a
 prose line's ending, CRLF or LF). A value or code span never reaches across a
@@ -206,11 +208,15 @@ SPACED_SIGN = re.compile(r"(?m)(^|[^\w.,)\]%°‰′″$€£¥₹\s–—-]|\b"
 UNIT_CHARS = r"(?:[^\W\d_]|[%°‰])+"
 # A rate's denominator, step by step, spaced or not (kg/m³, $15 / user, 5 MB/秒,
 # 5 mg/kg/day). A unit is always a denominator, even before another value
-# (30 km/h ±2 km/h); another word is one only when no value follows it, since a
+# (30 km/h ±2 km/h); another word is one only when no number follows it, since a
 # slash before a value's label separates two values (1.3 ms / overall 1.5 ms).
+# A price after the word separates too, but only after a spaced slash (5 kg /
+# retail $20/kg): an attached one is a rate ($15/user $20/team).
 # After a slash, a bare capital (L, A, N, J) is a unit with or without a space.
-PER = (r"[^\S\n]?/[^\S\n]?(?:(?:" + UNITS.replace("(?<=\\s)", "") + r")" + POWER + r"(?!\w)|"
-       + UNIT_CHARS + POWER + r"(?!\w)(?![^\S\n]*(?:" + SIGN + r"?\.?\d|[$€£¥₹])))")
+WORD_DENOMINATOR = UNIT_CHARS + POWER + r"(?!\w)(?![^\S\n]*" + SIGN + r"?\.?\d)"
+PER = (r"(?:[^\S\n]?/[^\S\n]?(?:" + UNITS.replace("(?<=\\s)", "") + r")" + POWER + r"(?!\w)"
+       r"|/" + WORD_DENOMINATOR
+       + r"|(?:[^\S\n]/[^\S\n]?|/[^\S\n])" + WORD_DENOMINATOR + r"(?![^\S\n]*[$€£¥₹]))")
 DENOMINATOR = "(?:" + PER + ")*"
 # A sign before the symbol (-$14) is kept, but not a range's hyphen ($10-$20),
 # and so is a rate with its power ($15/hr, $15/m²), as for units.
