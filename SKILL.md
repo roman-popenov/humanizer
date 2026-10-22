@@ -11,7 +11,7 @@ description: |
   plain-language editing skill instead if one is installed.
 license: MIT
 metadata:
-  version: "4.5.0"
+  version: "4.5.1"
 ---
 
 # Humanizer
