@@ -99,7 +99,7 @@ Without a sample, take the voice from the text itself. Personal writing keeps it
 
 ## Modes
 
-- **Rewrite (default, pasted text):** start with the rewritten text itself, with no preamble and no code fence around the whole of it (fences that belong to the text stay). After it, add a short note when you made a judgment call the writer should see: a passage you cut as a repeat (quoted, so they can restore it), a claim you kept but could not support, a passage you left as written because no plain wording kept its terms, a placeholder, a question for them.
+- **Rewrite (default, pasted text):** start with the rewritten text itself, with no preamble and no code fence around the whole of it (fences that belong to the text stay). After it, add a short note when you made a judgment call the writer should see: a passage you cut as a repeat (quoted, so they can restore it), a claim you kept but could not support, a passage you left as written because no plain wording kept its terms, a placeholder, a question for them. When the text stays generic because it gives no detail, name the two or three places where a detail from the writer would help most; never invent one.
 - **File rewrite:** when the user asks you to edit or rewrite a named file, edit it in place, prose only (hard rule 4), then summarise the changes in two or three lines.
 - **Embedded:** when another task uses this skill for its own output (a PR body, a commit message, a report), apply it silently and return only the text.
 - **Review:** when the user asks to check or review, list each tell as: pattern id, the quoted words, a suggested fix. Do not rewrite and do not modify files, even when a file is named; review takes precedence over file rewrite. Do not infer or comment on who or what wrote the text.
@@ -110,14 +110,14 @@ Full entries (watch lists, why, fix, keep-test, examples): [references/patterns.
 
 | id | pattern | kind | watch for | one-line test |
 |---|---|---|---|---|
-| P1 | Not X but Y, X rather than Y | defect [W] | not just X but Y; it's not X, it's Y; no X, just Y | Did anyone claim X? State Y, and any X that informs, plainly. A real comparison stays word for word. |
+| P1 | Not X but Y, X rather than Y | defect [W] | not just X but Y; it's not X, it's Y; no X, just Y; less like X and more like Y; without sacrificing X | Did anyone claim X? State Y, and any X that informs, plainly. A real comparison stays word for word. |
 | P2 | One-line closers, dramatic fragments, recaps | defect [U, W] | That is the real win. Let that sink in. The lesson? A row of fragments. In summary, | Restates a sentence on the same terms: cut. Anything else, a judgment included: one plain sentence. |
 | P3 | Sayings that sound deep | defect [U] | the real question is; at its core; X is the language of Y; X becomes a trap | Write the literal claim on the same terms; cut only a restatement; keep and ask if it has two readings. |
 | P4 | Staged run-ups | defect [U, W] | Let's dive in; here's what you need to know; Honestly?; Here's how it works.; set-up questions (The result?); As we discussed; Additionally, / Moreover, / Notably, | Delete a claim-free announcement or an opener that adds no relation; keep any feeling, ranking or claim inside it ("We're thrilled to announce" states a feeling). |
 | P5 | Arguing with no one | defect [U] | To be clear; I'm not saying; A tempting approach would be; You might think | Drop the staging; keep the rejected option's content and any judgment of it. |
 | P6 | Forced triads | density [W] | three adjectives or short phrases whose items overlap | Does each item add a distinct idea? Cut only repeats. |
 | P7 | Stacked hedges | defect [U] | could potentially; might possibly; may perhaps | Remove a hedge that repeats the same doubt; keep attribution (*I think, we suspect*) and distinct limits. |
-| P8 | Inflated significance and stock outlook | defect [W] | stands as; a testament to; pivotal moment; underscores its importance; continues to thrive; the future of | Keep the significance claim in the writer's words; move a participle frame into its own clause; cut only a restatement. |
+| P8 | Inflated significance and stock outlook | defect [W] | stands as; a testament to; pivotal moment; underscores its importance; continues to thrive; the future of; this matters; why X matters | Keep the significance claim in the writer's words; move a participle frame into its own clause; cut only a restatement. |
 | P9 | Vague connection or association | defect [W] | associated with; in connection with; linked to; ventured into X as | Keep the vague wording; never invent a role or a purpose. Ask the writer if the relationship matters. |
 | P10 | Shallow -ing riders | defect [W] | , highlighting / underscoring / reflecting / ensuring / showcasing ...; a result tacked on as ', cutting X to Y' | Make the rider its own clause with the same verb and relation; flag an unsupported one. |
 | P11 | Sales language | defect [W] | nestled; boasts; in the heart of; vibrant; breathtaking; rich (figurative); must-visit; seamless | Cut a frame that adds nothing (*stands as* for *is*); keep each evaluation in the writer's word unless a plain word has its degree. |
@@ -139,7 +139,7 @@ Full entries (watch lists, why, fix, keep-test, examples): [references/patterns.
 
 ## Not tells: leave these alone
 
-Each of these appears in careful human writing, and editing it out makes the text worse or less like its author. Wikipedia lists the first four among signs of human writing or ineffective indicators; the rest are this skill's own guidance.
+Each of these appears in careful human writing, and editing it out makes the text worse or less like its author. Wikipedia lists the first four among signs of human writing or ineffective indicators; the last one comes from a 2026 measurement; the rest are this skill's own guidance.
 
 - Simple hedges and intensifiers (*perhaps, tends to, very*) and wordy fixtures (*in order to, the fact that*)
 - Perfect grammar, formal or "fancy" words outside the P14 list, mixed casual and technical registers
@@ -151,6 +151,7 @@ Each of these appears in careful human writing, and editing it out makes the tex
 - An opinion, evaluation or significance claim said plainly, once ("the most useful change this year"), and an attributed hedge ("I think it might")
 - Labels that mark epistemic status in technical writing ("this is an inference", "measured", "untested")
 - Specific, odd details; mixed feelings left unresolved; dated slang; a real aside or self-correction
+- The writer's exclamation marks, parentheses, first person and anecdotes: a 2026 study by Graphite found people use exclamation marks over a hundred times as often as current models and parenthetical asides far more often, and found first-person writing and small anecdotes typical of human articles
 
 ## Worked examples
 
