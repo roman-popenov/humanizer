@@ -11,13 +11,14 @@ What it guarantees. A strict difference prints FAIL and exits 1:
 - Exactly as written: URLs of any scheme, CommonMark autolinks
   (<mailto:a@b.c>), bare email addresses, and Markdown link targets.
 - As values, after spacing is normalised, so rewrapping or respacing never
-  fails: numbers with their signs and magnitudes (-20, −5.3, .05, 1e-3,
-  -0x10, 50K, 3 bn), dimensions (1920x1080px, 10 x 20 cm), versions (v2.1,
-  2.4.0-beta), numbers with units and rates (36 MB, 5 A, 100 Mbps, 5 percent,
-  a 5-minute timeout, 30 km/h, 5 kg / m³), prices (-$14, $15/hr, 50 €, 50 M€),
-  labelled values (p = 0.003, OR = 2), ranges (2019-2021, 1 - 3 ms), and
-  bounds and comparisons (over 40,000, just over 40,000, about 36, up to 30,
-  <= 5, != 3).
+  fails: numbers with their signs, percent signs, multipliers and magnitudes
+  (-20, −5.3, .05, 1e-3, -0x10, 5 %, 5x, 50K, 3 bn), dimensions
+  (1920x1080px, 10 x 20 cm), versions (v2.1, 2.4.0-beta), numbers with
+  units and rates (36 MB, 5 A, 100 Mbps, 5 percent, a 5-minute timeout,
+  30 km/h, 5 kg / m³), prices (-$14, $15/hr, 50 €, 50 M€), labelled values
+  (p = 0.003, OR = 2), ranges (2019-2021, 1 - 3 ms), bounds and comparisons
+  (over 40,000, not over 40,000, just over 40,000, about 36, up to 30,
+  <= 5, != 3), and version constraints (>= 2.4.0-beta, ^v2.4).
 Never a difference: Markdown formatting outside code and quotations (bold and
 italic, list markers including a numbered list's numbers, line wrapping, and a
 prose line's ending, CRLF or LF). A value or code span never reaches across a
@@ -222,12 +223,25 @@ BOUND_WORDS = (
 # is >= 5, the same bound as at least 5. Every comparison but = is a bound, != included,
 # so turning = into != (or < into >) fails whatever word stands before it.
 BOUNDED = r"((?:[+−-]?[$€£¥₹]\s?)?" + NUM + r")"
-BOUND = re.compile(
-    r"\b(" + "|".join(w.replace(" ", r"\s+") for w in BOUND_WORDS) + r")\s+" + BOUNDED +
-    # A tilde of ~~strikethrough~~ is not "about".
-    r"|(>=|<=|!=|&gt;=|&lt;=|&ge;|&le;|&ne;|&gt;|&lt;|[<>≤≥≈≠]|(?<!~)~(?!~))" + GAP + BOUNDED,
-    re.I,
-)
+# A tilde of ~~strikethrough~~ is not "about".
+OPERATORS = r">=|<=|!=|&gt;=|&lt;=|&ge;|&le;|&ne;|&gt;|&lt;|[<>≤≥≈≠]|(?<!~)~(?!~)"
+
+
+def bound_on(value, operators):
+    """A bound phrase or operator before a value; not, no or never before a
+    phrase negates it (not over 40 is at most 40)."""
+    return re.compile(
+        r"\b((?:(?:not|no|never)\s+)?(?:" + "|".join(w.replace(" ", r"\s+") for w in BOUND_WORDS) + r"))\s+"
+        + value + r"|(" + operators + r")" + GAP + value,
+        re.I,
+    )
+
+
+BOUND = bound_on(BOUNDED, OPERATORS)
+# A version constraint (>= 2.4.0-beta, at least v2.4, ^1.2.3-rc.1) is read with its
+# version, before versions leave the text.
+VERSION_BOUND = bound_on("(" + VERSION.pattern + ")", r"==|~=|~>|\^|=|" + OPERATORS)
+NEGATED = {">": "<=", "<": ">=", ">=": "<", "<=": ">"}
 BOUND_CLASS = {
     "more than": ">", "greater than": ">", "over": ">", "above": ">", "exceeding": ">",
     "just over": ">~", ">": ">", "less than": "<", "fewer than": "<", "under": "<",
@@ -240,6 +254,8 @@ BOUND_CLASS = {
     # HTML entities, as Markdown renders them
     "&gt;=": ">=", "&lt;=": "<=", "&ge;": ">=", "&le;": "<=", "&gt;": ">", "&lt;": "<",
     "!=": "!=", "≠": "!=", "&ne;": "!=",
+    # version constraints
+    "==": "==", "=": "==", "~=": "~=", "~>": "~>", "^": "^",
 }
 LABELLED = re.compile(
     r"(?<![\w])([A-Za-z]\w*)" + GAP + r"(>=|<=|!=|&gt;=|&lt;=|&ge;|&le;|&ne;|&gt;|&lt;|[=<>≤≥≠≈])" + GAP + r"(" + NUM + r")"
@@ -256,11 +272,13 @@ DIMENSION = re.compile(
     r"(?:([A-Za-zµ°%]+" + POWER + DENOMINATOR + r")"
     r"|(?:(?=\s)" + GAP + r"|-(?!x\b))((?:" + UNITS + r")" + POWER + DENOMINATOR + r")(?!\w))?(?!\w)"
 )
-# A multiplication sign between two numbers, spaced or not (10 x 20, 10x20).
-SPACED_TIMES = re.compile(r"(?<=\d) ?([xX×]) ?(?=\d)")
+# A multiplication sign between two numbers, spaced or not (10 x 20, 10x20); the
+# first is a whole number, so a name ending in a digit (a1 x 2) keeps its spaces.
+SPACED_TIMES = re.compile(r"(?<![\w.])(\d+(?:[.,]\d+)*) ?([xX×]) ?(?=\d)")
 # A hex literal (0x4601, -0x10) is one number with its sign, compared as written,
-# and so is a number with its magnitude (50K, 3 bn), as for prices.
-NUMBER = re.compile(r"(?<![\w.])(?:[+−-]?0[xX][0-9A-Fa-f]+\b|" + NUM + r"(?:%|x\b|\s?(?:k|K|M|bn|B)\b)?)")
+# and so is a number with its percent sign, multiplier or magnitude, spaced or
+# not (5%, 5 %, 5x, 50K, 3 bn), as for prices.
+NUMBER = re.compile(r"(?<![\w.])(?:[+−-]?0[xX][0-9A-Fa-f]+\b|" + NUM + r"(?:\s?(?:%|(?:x|k|K|M|bn|B)\b))?)")
 # Bold and italic are removed where a marker run opens and the same run closes
 # it within a paragraph, as Markdown reads them: an asterisk pair may touch a
 # word (**5**kg), an underscore pair may not (timeout_, IRDN_RAN). Where removing
@@ -381,6 +399,8 @@ def split_code(text, masked):
                 rest = rest[container[0]:]
             elif matched == empty and indent_of(rest) < container[0]:
                 break  # unless the item opened empty and is still empty
+            else:
+                rest = rest[container[0]:]  # and gives up the item's indent, as far as it has one
             matched += 1
         if matched < len(containers):
             # A line outside an open container is lazy text only if it starts no
@@ -608,6 +628,22 @@ def strip_emphasis(text):
     return text
 
 
+def read_bounds(pattern, body):
+    """Count each bound as its comparison and value: no more than 40 and <= 40 agree."""
+    bounds = Counter()
+    for m in pattern.finditer(body):
+        word, value = (m.group(1), m.group(2)) if m.group(1) else (m.group(3), m.group(4))
+        word = " ".join(word.lower().split())
+        if word in BOUND_CLASS:
+            kind = BOUND_CLASS[word]
+        else:  # a negated phrase
+            kind = BOUND_CLASS[word.split(" ", 1)[1]]
+            kind = NEGATED.get(kind, "not " + kind)
+        value = re.sub(r"\s", "", value)  # a price may be written $ 40
+        bounds[f"{kind} {value}"] += 1
+    return bounds
+
+
 def extract(text):
     """Return token counts, review counts, and prose for the fact comparison."""
     facts, body, masked, boundary = strip_protected(text)
@@ -623,11 +659,12 @@ def extract(text):
     # value passes. Values stop at a paragraph break and at a block boundary.
     body = re.sub(r"\s+", lambda m: "\n\n" if BLANK_LINE.search(m.group(0)) else " ", body)
     facts["versions"] = Counter(m.group(0) for m in VERSION.finditer(body))
+    version_bounds = read_bounds(VERSION_BOUND, body)
     body = VERSION.sub(" ", body)
     # Spaces around a multiplication sign or a range's dash are spacing too:
     # 10 x 20 cm is the dimension 10x20 cm, and 1 -3 ms is the range 1-3 ms,
     # whose 3 is not negative.
-    body = SPACED_TIMES.sub(r"\1", body)
+    body = SPACED_TIMES.sub(r"\1\2", body)
     body = RANGE.sub(lambda m: re.sub(r"\s", "", m.group(0)), body)
     after = list(CURRENCY_AFTER.finditer(body))
     taken = {m.start(4) for m in after}  # a symbol read with the amount before it
@@ -645,12 +682,7 @@ def extract(text):
                                 if len(m.group(1)) == 1 or m.group(1).isupper()
                                 or m.group(1).capitalize() not in FUNCTION_WORDS)
     facts["ranges"] = Counter(re.sub(r"\s", "", m.group(0)) for m in RANGE.finditer(body))
-    bounds = Counter()
-    for m in BOUND.finditer(body):
-        word, num = (m.group(1), m.group(2)) if m.group(1) else (m.group(3), m.group(4))
-        num = re.sub(r"\s", "", num)  # a price may be written $ 40
-        bounds[f"{BOUND_CLASS[' '.join(word.lower().split())]} {num}"] += 1
-    facts["bounds"] = bounds
+    facts["bounds"] = version_bounds + read_bounds(BOUND, body)
     # A dimension is read last, so a bound or label beside it reads as before
     # (about 10x20 cm is ~ 10; from 5x15 = 75 has no label).
     dimensions = Counter(" ".join(filter(None, (m.group(1), (m.group(2) or m.group(3) or "").replace(" ", ""))))
