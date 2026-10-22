@@ -189,14 +189,20 @@ NUM = r"(?:[+−-]|[±∓][^\S\n]?)?(?:\d+(?:[.,]\d+)*|\.\d+)(?:[eE][+−-]?\d+)
 # (5 kg/m³, 5 m^2, 5 kg/m2), so a changed power or denominator is caught; x and
 # % take no digit power, so 0x4601 and 90x128 are not quantities.
 POWER = r"(?:[⁰¹²³⁴⁵⁶⁷⁸⁹⁻]+|(?<![x%])(?:\^-?[0-9]+|[23](?![0-9])))?"
+# A plus or minus sign (not a hyphen, which may be a dash) spaced from its digits
+# is the value's own only at the start of a block or after punctuation such as
+# : ( = |, where it cannot be an operator. After a word or a value it is one:
+# 8 runs + 25 checks and size − 1 add and subtract.
+SPACED_SIGN = re.compile(r"(?m)(^|[^\w.,)\]%°‰\s])(\s*)([+−])[^\S\n]+(?=\d)")
 # A unit written onto its number or slash: letters in any script (kg, µF, Ω) or a sign.
 UNIT_CHARS = r"(?:[^\W\d_]|[%°‰])+"
 # A rate's denominator, step by step, spaced or not (kg/m³, $15 / user, 5 MB/秒,
 # 5 mg/kg/day). A unit is always a denominator, even before another value
 # (30 km/h ±2 km/h); another word is one only when no value follows it, since a
 # slash before a value's label separates two values (1.3 ms / overall 1.5 ms).
-PER = (r"[^\S\n]?/[^\S\n]?(?:(?:" + UNITS + r")" + POWER + r"(?!\w)|"
-       + UNIT_CHARS + POWER + r"(?!\w)(?![^\S\n]*" + SIGN + r"?\.?\d))")
+# After a slash, a bare capital (L, A, N, J) is a unit with or without a space.
+PER = (r"[^\S\n]?/[^\S\n]?(?:(?:" + UNITS.replace("(?<=\\s)", "") + r")" + POWER + r"(?!\w)|"
+       + UNIT_CHARS + POWER + r"(?!\w)(?![^\S\n]*(?:" + SIGN + r"?\.?\d|[$€£¥₹])))")
 DENOMINATOR = "(?:" + PER + ")*"
 # A sign before the symbol (-$14) is kept, but not a range's hyphen ($10-$20),
 # and so is a rate with its power ($15/hr, $15/m²), as for units.
@@ -209,7 +215,7 @@ CURRENCY = re.compile(
 # else to an amount after it ($ 50).
 CURRENCY_AFTER = re.compile(
     # The amount may end a multiplication chain (3x50 €, 3 x 50 €: 3 times €50).
-    r"(?:(?<![\w.$€£¥₹])|(?<=\d[xX×]))(" + SIGN + r"?)((?:\d+(?:[.,]\d+)*|\.\d+))((?:[^\S\n]?(?:k|K|m|M|bn|B))?)" + GAP
+    r"(?:(?<![\w.$€£¥₹])|(?<=\d[xX×]))(" + SIGN + r"?)((?:\d+(?:[.,]\d+)*|\.\d+)(?:[eE][+−-]?\d+)?)((?:[^\S\n]?(?:k|K|m|M|bn|B))?)" + GAP
     + r"([$€£¥₹])(?![$€£¥₹]|" + SIGN + r"?\.?\d)(" + DENOMINATOR + r")(?!\w)"
 )
 # A rate keeps its denominator, so 30 km/h -> 30 km is a changed unit, and a
@@ -350,12 +356,20 @@ def list_kind(item):
     return marker if marker in "-*+" else marker[-1]
 
 
-def mask_markers(raw, opened, masked):
-    """Mask the ordered-list markers a prose line opened, in order, as formatting."""
+def mask_markers(raw, markers, masked):
+    """Take out the container markers a prose line carries, in order: a quote marker
+    is dropped, as BLOCKQUOTE drops one that starts a line, and a list marker (bullet
+    or item number) is masked. None of them is a fact or a comparison."""
     pos = 0
-    for marker in opened:
+    for marker in markers:
         m = re.compile(r"(?<!\d)" + re.escape(marker)).search(raw, pos)
-        if m:
+        if m is None:
+            continue
+        if marker == ">":
+            start = m.start() if raw[:m.start()].strip() else 0
+            end = m.end() + (raw[m.end():m.end() + 1] in " \t")
+            raw, pos = raw[:start] + raw[end:], start
+        else:
             raw = raw[:m.start()] + mask(marker, masked) + raw[m.end():]
             pos = m.start() + 1
     return raw
@@ -400,13 +414,14 @@ def split_code(text, masked):
     empty = None     # the depth of a list item opened with no content that has none yet
     for raw in text.splitlines(keepends=True):
         rest = raw.rstrip("\r\n").expandtabs(4)
-        matched, opened = 0, []  # opened: ordered-list markers this line starts
+        matched, markers = 0, []  # the container markers this line carries, in order
         for container in containers:
             if container == ">":
                 m = QUOTE_MARKER.match(rest)
                 if m is None:
                     break
                 rest = rest[m.end():]
+                markers.append(">")
             elif rest.strip():  # a blank line stays in a list item
                 if indent_of(rest) < container[0]:
                     break
@@ -445,6 +460,7 @@ def split_code(text, masked):
             m = QUOTE_MARKER.match(rest)
             if m:
                 containers.append(">")
+                markers.append(">")
                 rest, para = rest[m.end():], False
                 continue
             m = LIST_ITEM.match(rest)
@@ -452,13 +468,13 @@ def split_code(text, masked):
                 # Five or more spaces after the marker start indented code one column in.
                 width = m.end() if len(m.group(3)) <= 4 else m.end(2) + 1
                 containers.append((width, list_kind(m)))
-                opened += [m.group(2)] if m.group(2) not in "-*+" else []
+                markers.append(m.group(2))
                 rest, para = rest[width:], False
                 continue
             m = EMPTY_ITEM.match(rest)
             if m and not para:  # an empty item never interrupts a paragraph
                 containers.append((m.end(2) + 1, list_kind(m)))
-                opened += [m.group(2)] if m.group(2) not in "-*+" else []
+                markers.append(m.group(2))
                 rest, empty = "", len(containers) - 1
             break
         if (rest.strip() or len(containers) > depth) and empty is not None and empty < depth:
@@ -474,7 +490,7 @@ def split_code(text, masked):
             kept += [hold(code[0])] + [raw for raw, _ in blanks]
             code, blanks = None, []
         if not rest.strip():
-            kept.append(mask_markers(raw, opened, masked))
+            kept.append(mask_markers(raw, markers, masked))
             para = False
             continue
         # A line that does not continue a paragraph starts a block.
@@ -487,7 +503,7 @@ def split_code(text, masked):
             closer = re.compile(r" {0,3}" + re.escape(m.group(1)[0]) + "{%d,}[ \t]*$" % len(m.group(1)))
             code, para = [[(raw, inside(raw, rest))], len(containers), closer], False
             continue
-        kept.append((boundary + "\n" if starts else "") + mask_markers(raw, opened, masked))
+        kept.append((boundary + "\n" if starts else "") + mask_markers(raw, markers, masked))
         # A heading or thematic break ends the paragraph: Title\n---, # Title, ***.
         para = not ((para and SETEXT_UNDERLINE.match(rest)) or ATX_HEADING.match(rest)
                     or THEMATIC_BREAK.match(rest))
@@ -689,6 +705,11 @@ def extract(text):
     # A plus-minus glued to the value before it is a tolerance of its own: 5±2 mm is
     # 5 and ±2 mm, so the sign is compared.
     body = re.sub(r"(?<=[\w.%])([±∓])", r" \1", body)
+    # Temperature: − 5 °C is −5 °C. A masked code span, link or URL before the sign
+    # is a value, as in `a` + 3; a block boundary or a list marker is not.
+    operands = {c for c, span in masked.items() if span and not re.fullmatch(r"[-*+]|\d{1,9}[.)]", span)}
+    body = SPACED_SIGN.sub(lambda m: m.group(0) if m.group(1) in operands else m.group(1) + m.group(2) + m.group(3),
+                           body)
     body = RANGE.sub(lambda m: re.sub(r"\s", "", m.group(0)), body)
     after = list(CURRENCY_AFTER.finditer(body))
     taken = {m.start(4) for m in after}  # a symbol read with the amount before it
