@@ -15,11 +15,11 @@ What it guarantees. A strict difference prints FAIL and exits 1:
   (-20, −5.3, .05, 1e-3, -0x10, 5 %, 5x, 50K, 3 bn), dimensions
   (1920x1080px, 10 x 20 cm), versions (v2.1, 2.4.0-beta), numbers with
   units and rates (36 MB, 5 A, 100 Mbps, 5 percent, a 5-minute timeout,
-  30 km/h, 5 kg / m³), prices (-$14, $15/hr, 50 €, 50 M€), labelled values
-  (p = 0.003, OR = 2), ranges (2019-2021, 1 - 3 ms), bounds and comparisons
-  (over 40,000, not over 40,000, just over 40,000, about 36, up to 30,
-  <= 5, != 3), and version constraints and pins (>= 2.4.0-beta, ^v2.4,
-  ^1.2.3, ~> 1.2, == 1.2.3).
+  30 km/h, 5 kg / m³, 5 mg/kg/day), tolerances (±5 mm, 5±2 mm), prices
+  (-$14, $15/hr, 50 €, 50 M€), labelled values (p = 0.003, OR = 2), ranges
+  (2019-2021, 1 - 3 ms), bounds and comparisons (over 40,000, not over
+  40,000, just over 40,000, about 36, up to 30, <= 5, != 3), and version
+  constraints and pins (>= 2.4.0-beta, ^v2.4, ^1.2.3, ~> 1.2, == 1.2.3).
 Never a difference: Markdown formatting outside code and quotations (bold and
 italic, list markers including a numbered list's numbers, line wrapping, and a
 prose line's ending, CRLF or LF). A value or code span never reaches across a
@@ -170,7 +170,8 @@ UNITS = (
     r"nm|µm|um|mm|cm|m|km|g|kg|mg|lb|lbs|oz|mi|ft|yd|mph|kph|gal|mL|ml|µL|uL|(?<=\s)L|"
     r"V|mV|kV|(?<=\s)A|mA|µA|kA|Ah|mAh|W|mW|kW|MW|GW|VA|kVA|Wh|mWh|kWh|MWh|Ω|kΩ|MΩ|"
     r"µF|uF|nF|pF|mH|µH|(?<=\s)N|kN|Nm|Pa|hPa|kPa|MPa|GPa|bar|mbar|psi|mmHg|(?<=\s)J|kJ|MJ|"
-    r"cal|kcal|mol|mmol|ppm|ppb|lm|lx|bpm|rpm|"
+    r"cal|kcal|mol|mmol|µmol|umol|nmol|pmol|µg|ug|mcg|ng|pg|nL|pL|dL|ps|fs|µV|uV|nV|nA|pA|µW|uW|nW|mΩ|"
+    r"ppm|ppb|lm|lx|bpm|rpm|"
     r"(?:nano|micro|milli)?seconds?|minutes?|hours?|days?|weeks?|months?|years?|"
     r"(?:kilo|centi|milli)?(?:met(?:er|re)s?|grams?|lit(?:er|re)s?)|miles?|feet|foot|inch(?:es)?|"
     r"pounds?|ounces?|degrees?|percent|bytes?|bits?|pixels?|volts?|watts?|amps?|amperes?|ohms?"
@@ -181,17 +182,22 @@ UNITS = (
 # (.05) and an exponent (1.5e3, 1e-3) are part of the number.
 # A sign: plus, hyphen-minus, Unicode minus, or plus-minus (±5 mm, ∓0.2).
 SIGN = "[+−±∓-]"
-NUM = SIGN + r"?(?:\d+(?:[.,]\d+)*|\.\d+)(?:[eE][+−-]?\d+)?"
+# A plus-minus may stand apart from its digits (± 5 mm); the space is dropped
+# wherever a value is compared.
+NUM = r"(?:[+−-]|[±∓][^\S\n]?)?(?:\d+(?:[.,]\d+)*|\.\d+)(?:[eE][+−-]?\d+)?"
 # A unit keeps its power, written as a superscript, after ^, or as a bare 2 or 3
 # (5 kg/m³, 5 m^2, 5 kg/m2), so a changed power or denominator is caught; x and
 # % take no digit power, so 0x4601 and 90x128 are not quantities.
 POWER = r"(?:[⁰¹²³⁴⁵⁶⁷⁸⁹⁻]+|(?<![x%])(?:\^-?[0-9]+|[23](?![0-9])))?"
 # A unit written onto its number or slash: letters in any script (kg, µF, Ω) or a sign.
 UNIT_CHARS = r"(?:[^\W\d_]|[%°‰])+"
-# A rate's denominator, with its power, spaced or not (kg/m³, $15 / user, 5 MB/秒).
-# A word after the slash that starts a new value is not one: the slash then
-# separates two values (1.3 ms / overall 1.5 ms).
-DENOMINATOR = (r"(?:[^\S\n]?/[^\S\n]?" + UNIT_CHARS + POWER + r"(?!\w)(?![^\S\n]*" + SIGN + r"?\.?\d))?")
+# A rate's denominator, step by step, spaced or not (kg/m³, $15 / user, 5 MB/秒,
+# 5 mg/kg/day). A unit is always a denominator, even before another value
+# (30 km/h ±2 km/h); another word is one only when no value follows it, since a
+# slash before a value's label separates two values (1.3 ms / overall 1.5 ms).
+PER = (r"[^\S\n]?/[^\S\n]?(?:(?:" + UNITS + r")" + POWER + r"(?!\w)|"
+       + UNIT_CHARS + POWER + r"(?!\w)(?![^\S\n]*" + SIGN + r"?\.?\d))")
+DENOMINATOR = "(?:" + PER + ")*"
 # A sign before the symbol (-$14) is kept, but not a range's hyphen ($10-$20),
 # and so is a rate with its power ($15/hr, $15/m²), as for units.
 CURRENCY = re.compile(
@@ -680,6 +686,9 @@ def extract(text):
     # 10 x 20 cm is the dimension 10x20 cm, and 1 -3 ms is the range 1-3 ms,
     # whose 3 is not negative.
     body = TIMES_CHAIN.sub(lambda m: m.group(0).replace(" ", ""), body)
+    # A plus-minus glued to the value before it is a tolerance of its own: 5±2 mm is
+    # 5 and ±2 mm, so the sign is compared.
+    body = re.sub(r"(?<=[\w.%])([±∓])", r" \1", body)
     body = RANGE.sub(lambda m: re.sub(r"\s", "", m.group(0)), body)
     after = list(CURRENCY_AFTER.finditer(body))
     taken = {m.start(4) for m in after}  # a symbol read with the amount before it
@@ -687,12 +696,13 @@ def extract(text):
                                  if m.start(1) not in taken)
                          + Counter(m.group(1) + m.group(4) + m.group(2) + re.sub(r"\s", "", m.group(3) + m.group(5))
                                    for m in after))
-    facts["quantities"] = Counter(f"{m.group(1)} {m.group(2).replace(' ', '')}" for m in QUANTITY.finditer(body))
+    facts["quantities"] = Counter(re.sub(r"\s", "", m.group(1)) + " " + m.group(2).replace(" ", "")
+                                  for m in QUANTITY.finditer(body))
     # The operator and value are always compared (as bounds); the word before the
     # operator is compared too when it is a label: a letter (I = 5 A), a symbol in
     # capitals (OR = 2), or a word that is not a function word (latency < 5). A
     # function word is prose (Latency is now < 5 ms).
-    facts["labelled"] = Counter(f"{m.group(1)} {LABEL_OPERATOR.get(m.group(2), m.group(2))} {m.group(3)}"
+    facts["labelled"] = Counter(f"{m.group(1)} {LABEL_OPERATOR.get(m.group(2), m.group(2))} " + re.sub(r"\s", "", m.group(3))
                                 for m in LABELLED.finditer(body)
                                 if len(m.group(1)) == 1 or m.group(1).isupper()
                                 or m.group(1).capitalize() not in FUNCTION_WORDS)
