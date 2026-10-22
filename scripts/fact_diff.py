@@ -5,17 +5,19 @@ Usage: python3 fact_diff.py ORIGINAL REWRITE
 
 What it guarantees. A strict difference prints FAIL and exits 1:
 - Byte for byte, line endings included: code blocks (fenced or indented),
-  inline code spans, and quoted passages ("...", '...', “...”, «...»). Each
-  is compared by count, so a repeated span that changes or goes is caught.
+  read without the markers and indent of the list item or quote that holds
+  them, inline code spans, and quoted passages ("...", '...', “...”, «...»).
+  Each is compared by count, so a repeated span that changes or goes is caught.
 - Exactly as written: URLs of any scheme, CommonMark autolinks
   (<mailto:a@b.c>), bare email addresses, and Markdown link targets.
 - As values, after spacing is normalised, so rewrapping or respacing never
-  fails: numbers with their signs (-20, −5.3, .05, 1e-3, -0x10), compact
-  dimensions (1920x1080px, 10x20 cm), versions (v2.1, 2.4.0-beta), numbers
-  with units and rates (36 MB, a 5-minute timeout, 30 km/h, 5 kg / m³),
-  prices (-$14, $15/hr, 50 €, 50 M€), labelled values (p = 0.003, OR = 2),
-  ranges (2019-2021), and bounds and comparisons (over 40,000, just over
-  40,000, about 36, up to 30, <= 5, != 3).
+  fails: numbers with their signs and magnitudes (-20, −5.3, .05, 1e-3,
+  -0x10, 50K, 3 bn), dimensions (1920x1080px, 10 x 20 cm), versions (v2.1,
+  2.4.0-beta), numbers with units and rates (36 MB, 5 A, 100 Mbps, 5 percent,
+  a 5-minute timeout, 30 km/h, 5 kg / m³), prices (-$14, $15/hr, 50 €, 50 M€),
+  labelled values (p = 0.003, OR = 2), ranges (2019-2021, 1 - 3 ms), and
+  bounds and comparisons (over 40,000, just over 40,000, about 36, up to 30,
+  <= 5, != 3).
 Never a difference: Markdown formatting outside code and quotations (bold and
 italic, list markers including a numbered list's numbers, line wrapping, and a
 prose line's ending, CRLF or LF). A value or code span never reaches across a
@@ -38,14 +40,16 @@ import re
 import sys
 from collections import Counter
 
-# Code follows CommonMark's block structure. Blockquotes (>) and list items hold
-# other blocks, and a line stays in an open one only if it carries its marker or
-# indentation (or lazily continues a paragraph). Code is a fenced block, whose
-# fence may sit inside a blockquote or list item and closes only on a line of the
-# same character at least as long as its opener, or an indented block, four
-# columns past its container, which cannot interrupt a paragraph; a heading or
-# a thematic break ends a paragraph, so code may follow it directly. An inline
-# span closes only on a backtick run of its opener's length.
+# Code follows CommonMark's block structure as GitHub renders it (cmark-gfm).
+# Blockquotes (>) and list items hold other blocks, and a line stays in an open
+# one only if it carries its marker or indentation, or lazily continues a
+# paragraph, which a line that starts a block never does; an item that opened
+# empty ends at a blank line less indented than its content. Code is a fenced
+# block, whose fence may sit inside a blockquote or list item and closes only on
+# a line of the same character at least as long as its opener, or an indented
+# block, four columns past its container, which cannot interrupt a paragraph; a
+# heading or a thematic break ends a paragraph, so code may follow it directly.
+# An inline span closes only on a backtick run of its opener's length.
 QUOTE_MARKER = re.compile(r" {0,3}>[ \t]?")
 LIST_ITEM = re.compile(r"( {0,3})([-*+]|\d{1,9}[.)])( +)(?=\S)")
 EMPTY_ITEM = re.compile(r"( {0,3})([-*+]|\d{1,9}[.)])[ \t]*$")  # its content starts on the next line
@@ -156,12 +160,18 @@ VERSION = re.compile(
     r"(?<![\w.])(?:[vV]\d+(?:\.\d+)*(?:[-.+][A-Za-z0-9]+)*"
     r"|\d+\.\d+\.\d+(?:[-+][0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)+)\b"
 )
-# A bare L (litre) only after a space: 2L is two times L.
+# A bare capital that is also a letter or a label (L, A, N, J) is a unit only
+# after a space: 2L is two times L and 5A is a room, but 5 A is five amperes.
 UNITS = (
     r"%|‰|°[CF]?|x|ms|µs|us|ns|s|sec|secs|min|mins|h|hr|hrs|KB|kB|MB|GB|TB|PB|Kb|Mb|Gb|"
-    r"KiB|MiB|GiB|TiB|Hz|kHz|MHz|GHz|Msps|ksps|fps|px|pt|dB|dBm|mm|cm|m|km|g|kg|mg|lb|lbs|"
-    r"oz|mi|ft|mL|ml|µL|uL|(?<=\s)L|V|mV|W|kW|MW|mA|mAh|Wh|kWh|mmHg|bpm|rpm|"
-    r"(?:nano|micro|milli)?seconds?|minutes?|hours?|days?|weeks?|months?|years?"
+    r"KiB|MiB|GiB|TiB|bps|kbps|Kbps|Mbps|Gbps|Hz|kHz|MHz|GHz|Msps|ksps|fps|px|pt|dB|dBm|"
+    r"nm|µm|um|mm|cm|m|km|g|kg|mg|lb|lbs|oz|mi|ft|yd|mph|kph|gal|mL|ml|µL|uL|(?<=\s)L|"
+    r"V|mV|kV|(?<=\s)A|mA|µA|kA|Ah|mAh|W|mW|kW|MW|GW|VA|kVA|Wh|mWh|kWh|MWh|Ω|kΩ|MΩ|"
+    r"µF|uF|nF|pF|mH|µH|(?<=\s)N|kN|Nm|Pa|hPa|kPa|MPa|GPa|bar|mbar|psi|mmHg|(?<=\s)J|kJ|MJ|"
+    r"cal|kcal|mol|mmol|ppm|ppb|lm|lx|bpm|rpm|"
+    r"(?:nano|micro|milli)?seconds?|minutes?|hours?|days?|weeks?|months?|years?|"
+    r"(?:kilo|centi|milli)?(?:met(?:er|re)s?|grams?|lit(?:er|re)s?)|miles?|feet|foot|inch(?:es)?|"
+    r"pounds?|ounces?|degrees?|percent|bytes?|bits?|pixels?|volts?|watts?|amps?|amperes?|ohms?"
 )
 # An optional sign (ASCII hyphen-minus, Unicode minus or plus) is part of the
 # number, so -20 -> 20 is a changed value. The lookbehinds below keep the hyphen
@@ -246,8 +256,11 @@ DIMENSION = re.compile(
     r"(?:([A-Za-zµ°%]+" + POWER + DENOMINATOR + r")"
     r"|(?:(?=\s)" + GAP + r"|-(?!x\b))((?:" + UNITS + r")" + POWER + DENOMINATOR + r")(?!\w))?(?!\w)"
 )
-# A hex literal (0x4601, -0x10) is one number with its sign, compared as written.
-NUMBER = re.compile(r"(?<![\w.])(?:[+−-]?0[xX][0-9A-Fa-f]+\b|" + NUM + r"(?:%|x\b)?)")
+# A multiplication sign between two numbers, spaced or not (10 x 20, 10x20).
+SPACED_TIMES = re.compile(r"(?<=\d) ?([xX×]) ?(?=\d)")
+# A hex literal (0x4601, -0x10) is one number with its sign, compared as written,
+# and so is a number with its magnitude (50K, 3 bn), as for prices.
+NUMBER = re.compile(r"(?<![\w.])(?:[+−-]?0[xX][0-9A-Fa-f]+\b|" + NUM + r"(?:%|x\b|\s?(?:k|K|M|bn|B)\b)?)")
 # Bold and italic are removed where a marker run opens and the same run closes
 # it within a paragraph, as Markdown reads them: an asterisk pair may touch a
 # word (**5**kg), an underscore pair may not (timeout_, IRDN_RAN). Where removing
@@ -293,6 +306,12 @@ def can_interrupt(item):
     return item.group(2) in "-*+" or item.group(2)[:-1] == "1"
 
 
+def opens_fence(rest):
+    """Match a fence opener; a backtick fence's info string cannot contain a backtick."""
+    m = FENCE.match(rest)
+    return m if m and not (m.group(1)[0] == "`" and "`" in rest[m.end():]) else None
+
+
 def list_kind(item):
     """Name the list an item belongs to: its bullet, or an ordered list's delimiter."""
     marker = item.group(2)
@@ -310,25 +329,43 @@ def mask_markers(raw, opened, masked):
     return raw
 
 
+def inside(raw, rest):
+    """Return a line from where its container's markers and indent end, as written.
+
+    rest is what is left of the line, tabs expanded, once its containers are
+    matched; a tab that straddles the container's edge stays with the line."""
+    line = raw.rstrip("\r\n")
+    width = len(line.expandtabs(4)) - len(rest)
+    col = i = 0
+    while i < len(line) and col < width:
+        col = col + 4 - col % 4 if line[i] == "\t" else col + 1
+        i += 1
+    return raw[i - 1 if col > width else i:]
+
+
 def split_code(text, masked):
     """Return the code blocks (fenced or indented) as written, the text outside them,
     and the placeholder that marks where each block of that text starts.
 
-    An ordered list's item numbers (1. Install) are formatting, not facts: they
-    are masked in that text, so a quotation still restores them."""
+    A block is compared without its containers' markers and indent, so
+    renumbering a list or requoting a passage changes no code. An ordered
+    list's item numbers (1. Install) are formatting, not facts: they are masked
+    in the text, so a quotation still restores them."""
     blocks, kept, blanks = [], [], []
     boundary = mask("", masked)
 
-    def hold(block):
-        """Record a code block; a placeholder on its own paragraph keeps its place, so a
-        quotation that spans the block puts it back and a swap of two blocks is caught."""
-        blocks.append(block)
-        return "\n" + mask(block, masked) + "\n\n"
+    def hold(lines):
+        """Record a code block from its (raw, content) lines; a placeholder on its own
+        paragraph keeps its place, so a quotation that spans the block puts it back
+        and a swap of two blocks is caught."""
+        blocks.append("".join(content for _, content in lines))
+        return "\n" + mask("".join(raw for raw, _ in lines), masked) + "\n\n"
 
     # ">" for a blockquote, or (content indent, list kind) for a list item; outermost first
     containers = []
-    code = None      # the open code block: [lines, container depth, closing fence or None]
+    code = None      # the open code block: [(raw, content) lines, container depth, closing fence or None]
     para = False     # the last line was paragraph text, which a lazy line may continue
+    empty = None     # the depth of a list item opened with no content that has none yet
     for raw in text.splitlines(keepends=True):
         rest = raw.rstrip("\r\n").expandtabs(4)
         matched, opened = 0, []  # opened: ordered-list markers this line starts
@@ -342,26 +379,30 @@ def split_code(text, masked):
                 if indent_of(rest) < container[0]:
                     break
                 rest = rest[container[0]:]
+            elif matched == empty and indent_of(rest) < container[0]:
+                break  # unless the item opened empty and is still empty
             matched += 1
         if matched < len(containers):
-            item = LIST_ITEM.match(rest)
-            # The next item of the same list (10. then 2.) starts a block; it is
-            # not a new list interrupting the paragraph.
-            sibling = item and containers[matched] != ">" and containers[matched][1] == list_kind(item)
-            starts_block = (QUOTE_MARKER.match(rest) or FENCE.match(rest) or ATX_HEADING.match(rest)
-                            or THEMATIC_BREAK.match(rest) or (item and (can_interrupt(item) or sibling)))
+            # A line outside an open container is lazy text only if it starts no
+            # block. Any list item starts one here, empty or numbered from 2: the
+            # paragraph it follows is inside the container it left, so the rule
+            # that such an item cannot interrupt a paragraph does not apply.
+            starts_block = (QUOTE_MARKER.match(rest) or opens_fence(rest) or ATX_HEADING.match(rest)
+                            or THEMATIC_BREAK.match(rest) or LIST_ITEM.match(rest) or EMPTY_ITEM.match(rest))
             if para and rest.strip() and not starts_block:
                 kept.append(raw)  # a lazy continuation keeps every container open
                 continue
             del containers[matched:]
             para = False
+            if empty is not None and empty >= matched:
+                empty = None
         if code and code[1] > len(containers):  # its container closed, so it did too
-            kept += [hold("".join(code[0]))] + blanks
+            kept += [hold(code[0])] + [raw for raw, _ in blanks]
             code, blanks = None, []
         if code and code[2]:
-            code[0].append(raw)
+            code[0].append((raw, inside(raw, rest)))
             if code[2].match(rest):
-                kept.append(hold("".join(code[0])))
+                kept.append(hold(code[0]))
                 code = None
             continue
         # New containers; four columns in is code or paragraph text, never a marker.
@@ -384,17 +425,19 @@ def split_code(text, masked):
             if m and not para:  # an empty item never interrupts a paragraph
                 containers.append((m.end(2) + 1, list_kind(m)))
                 opened += [m.group(2)] if m.group(2) not in "-*+" else []
-                rest = ""
+                rest, empty = "", len(containers) - 1
             break
+        if (rest.strip() or len(containers) > depth) and empty is not None and empty < depth:
+            empty = None  # content, or a new container, fills the empty item it is in
         if code:  # an open indented block
             if not rest.strip() and len(containers) == depth:  # an empty new item ends it
-                blanks.append(raw)  # kept only if the block continues after it
+                blanks.append((raw, inside(raw, rest)))  # kept only if the block continues after it
                 continue
             if indent_of(rest) >= 4 and code[1] == len(containers):
-                code[0] += blanks + [raw]
+                code[0] += blanks + [(raw, inside(raw, rest))]
                 blanks = []
                 continue
-            kept += [hold("".join(code[0]))] + blanks
+            kept += [hold(code[0])] + [raw for raw, _ in blanks]
             code, blanks = None, []
         if not rest.strip():
             kept.append(mask_markers(raw, opened, masked))
@@ -403,20 +446,19 @@ def split_code(text, masked):
         # A line that does not continue a paragraph starts a block.
         starts = not para or ATX_HEADING.match(rest) or THEMATIC_BREAK.match(rest)
         if indent_of(rest) >= 4 and not para:
-            code = [[raw], len(containers), None]
+            code = [[(raw, inside(raw, rest))], len(containers), None]
             continue
-        m = FENCE.match(rest)
-        # A backtick fence's info string cannot contain a backtick.
-        if m and not (m.group(1)[0] == "`" and "`" in rest[m.end():]):
+        m = opens_fence(rest)
+        if m:
             closer = re.compile(r" {0,3}" + re.escape(m.group(1)[0]) + "{%d,}[ \t]*$" % len(m.group(1)))
-            code, para = [[raw], len(containers), closer], False
+            code, para = [[(raw, inside(raw, rest))], len(containers), closer], False
             continue
         kept.append((boundary + "\n" if starts else "") + mask_markers(raw, opened, masked))
         # A heading or thematic break ends the paragraph: Title\n---, # Title, ***.
         para = not ((para and SETEXT_UNDERLINE.match(rest)) or ATX_HEADING.match(rest)
                     or THEMATIC_BREAK.match(rest))
     if code:  # an unclosed block runs to the end of the text
-        kept += [hold("".join(code[0]))] + blanks
+        kept += [hold(code[0])] + [raw for raw, _ in blanks]
     return blocks, "".join(kept), boundary
 
 
@@ -533,7 +575,14 @@ def strip_protected(text):
         pos = m.start() + len(url)
         m = url_pattern.search(body, pos)
     kept.append(body[pos:])
-    body = EMAIL.sub(lambda m: destination(m, m.group(0)), "".join(kept))
+    def address(m):
+        """Count an email address; an underscore run that opens before it and closes
+        after it (_a@b.org_) is emphasis, not part of the address."""
+        run = re.match(r"_*", m.group(0)).group(0)
+        if run and re.match(re.escape(run) + r"(?!\w)", m.string[m.end():]):
+            return destination(m, m.group(0)[len(run):])
+        return destination(m, m.group(0))
+    body = EMAIL.sub(address, "".join(kept))
     facts["urls"] = urls
     return facts, body, masked, boundary
 
@@ -575,6 +624,11 @@ def extract(text):
     body = re.sub(r"\s+", lambda m: "\n\n" if BLANK_LINE.search(m.group(0)) else " ", body)
     facts["versions"] = Counter(m.group(0) for m in VERSION.finditer(body))
     body = VERSION.sub(" ", body)
+    # Spaces around a multiplication sign or a range's dash are spacing too:
+    # 10 x 20 cm is the dimension 10x20 cm, and 1 -3 ms is the range 1-3 ms,
+    # whose 3 is not negative.
+    body = SPACED_TIMES.sub(r"\1", body)
+    body = RANGE.sub(lambda m: re.sub(r"\s", "", m.group(0)), body)
     after = list(CURRENCY_AFTER.finditer(body))
     taken = {m.start(4) for m in after}  # a symbol read with the amount before it
     facts["currency"] = (Counter(re.sub(r"\s", "", m.group(0)) for m in CURRENCY.finditer(body)
@@ -604,7 +658,7 @@ def extract(text):
     body = DIMENSION.sub(" ", body)
     # Numbers are compared exactly as written: 3,000 and 3000 differ, and so do
     # 1,5 and 1.5. A rewrite should not reformat data (hard rule 4).
-    facts["numbers"] = dimensions + Counter(m.group(0).rstrip(".") for m in NUMBER.finditer(body))
+    facts["numbers"] = dimensions + Counter(re.sub(r"\s", "", m.group(0)).rstrip(".") for m in NUMBER.finditer(body))
     facts["number_words"] = Counter(m.group(0).lower() for m in NUMBER_WORDS.finditer(body))
     facts["negations"] = len(NEGATION.findall(body))
     facts["hedges"] = len(HEDGE.findall(body))
