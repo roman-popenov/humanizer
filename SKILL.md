@@ -110,7 +110,7 @@ Full entries (watch lists, why, fix, keep-test, examples): [references/patterns.
 
 | id | pattern | kind | watch for | one-line test |
 |---|---|---|---|---|
-| P1 | Not X but Y, X rather than Y | defect [W] | not just X but Y; it's not X, it's Y; no X, just Y; less like X and more like Y; without sacrificing X | Did anyone claim X? State Y, and any X that informs, plainly. A real comparison stays word for word. |
+| P1 | Not X but Y, X rather than Y | defect [W] | not just X but Y; it's not X, it's Y; no X, just Y; less like X and more like Y; without sacrificing X | Did anyone claim X? State Y, and any X that informs, plainly. A real comparison and a trade-off denial stay. |
 | P2 | One-line closers, dramatic fragments, recaps | defect [U, W] | That is the real win. Let that sink in. The lesson? A row of fragments. In summary, | Restates a sentence on the same terms: cut. Anything else, a judgment included: one plain sentence. |
 | P3 | Sayings that sound deep | defect [U] | the real question is; at its core; X is the language of Y; X becomes a trap | Write the literal claim on the same terms; cut only a restatement; keep and ask if it has two readings. |
 | P4 | Staged run-ups | defect [U, W] | Let's dive in; here's what you need to know; Honestly?; Here's how it works.; set-up questions (The result?); As we discussed; Additionally, / Moreover, / Notably, | Delete a claim-free announcement or an opener that adds no relation; keep any feeling, ranking or claim inside it ("We're thrilled to announce" states a feeling). |
@@ -122,16 +122,16 @@ Full entries (watch lists, why, fix, keep-test, examples): [references/patterns.
 | P10 | Shallow -ing riders | defect [W] | , highlighting / underscoring / reflecting / ensuring / showcasing ...; a result tacked on as ', cutting X to Y' | Make the rider its own clause with the same verb and relation; flag an unsupported one. |
 | P11 | Sales language | defect [W] | nestled; boasts; in the heart of; vibrant; breathtaking; rich (figurative); must-visit; seamless | Cut a frame that adds nothing (*stands as* for *is*); keep each evaluation in the writer's word unless a plain word has its degree. |
 | P12 | Borrowed authority | defect [W] | experts argue; observers have cited; industry reports; featured in | Keep the attribution; ask the writer who it was. |
-| P13 | Avoiding is, are and has | defect [W] | serves as; stands as; has emerged as; boasts; features (meaning has) | Use is or has only where nothing else changes (role, timing, function, degree). |
+| P13 | Avoiding is, are and has | defect [W] | serves as; stands as; has emerged as; holds the distinction of being; boasts; features (meaning has) | Use is or has only where nothing else changes (role, timing, function, degree). |
 | P14 | AI vocabulary | density [W] | delve, tapestry, testament, pivotal, crucial, underscore, showcase, foster, enhance, intricate, garner, vibrant (full dated list in P14) | A cluster of listed words, not one. Keep degree words; replace a word only with one of the same degree and kind. |
 | P15 | Dashes as the universal connector | density [W] | several em dashes or spaced hyphens joining clauses in a paragraph or a short post | Replace connector dashes; keep ranges and the writer's own habit. |
 | P16 | Repeated openings and synonym cycling | density [U, W] | She ... She ... She ...; the dashboard ... the interface ... the portal | Same subject opening three sentences in a row, not for rhythm? One thing renamed in every sentence? |
 | P17 | Passive hiding a known actor | density [U] | it was decided; was implemented | Does the text say who? Then name them; never invent one. |
 | P18 | Bold as decoration, bold-label lists | defect [W] | **Label:** lines; bold on key terms | Remove the bold; keep a label's words when they say something the line does not. |
-| P19 | Decorative headings, emoji and tiny tables | defect [W, U] | 🚀 headings; rule after every section; two-row tables | Is the formatting doing work? |
+| P19 | Decorative headings, emoji and tiny tables | defect [W, U] | 🚀 headings; ⚠ or ✅ as markers; rule after every section; two-row tables | Is the formatting doing work? |
 | P20 | Curly quotes in a straight-quote format | density [W] | “ ” ’ mixed with " ' | Match the target format; never mix. |
 | P21 | Chatbot residue and clerk tone | defect [W] | Certainly!; Great question!; I hope this helps; Here is an overview of; I hope this message finds you well | Remove the empty wrapper; keep every offer, request, question, thanks and apology with its conditions. |
-| P22 | Source and knowledge disclaimers | defect [W] | not widely documented; based on available information; likely grew up; should be treated as X rather than Y | Keep the claim and its hedge; list it in the note as unverified. |
+| P22 | Source and knowledge disclaimers | defect [W] | not widely documented; based on available information; likely grew up; should be treated as X rather than Y; it's important to note | Keep the claim and its hedge; list a claim about sources in the note as unverified. |
 | P23 | Heading restated as the first sentence | defect [U] | ## Setup / This section covers setup. | Delete the restatement only if the heading says the same thing. |
 | P24 | Writing about the document or the process | defect [W, U] | the table below; while preserving; ensuring; avoided; aimed to | Is it about the subject or the writing? Keep guarantees, history, provenance and reasons. |
 | P25 | Re-explaining what the reader knows | defect [U] | a reply whose decision comes last | In a reply, is the decision first? Move, never delete, the evidence. |
