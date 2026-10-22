@@ -18,7 +18,8 @@ What it guarantees. A strict difference prints FAIL and exits 1:
   30 km/h, 5 kg / m³), prices (-$14, $15/hr, 50 €, 50 M€), labelled values
   (p = 0.003, OR = 2), ranges (2019-2021, 1 - 3 ms), bounds and comparisons
   (over 40,000, not over 40,000, just over 40,000, about 36, up to 30,
-  <= 5, != 3), and version constraints (>= 2.4.0-beta, ^v2.4).
+  <= 5, != 3), and version constraints and pins (>= 2.4.0-beta, ^v2.4,
+  ^1.2.3, ~> 1.2, == 1.2.3).
 Never a difference: Markdown formatting outside code and quotations (bold and
 italic, list markers including a numbered list's numbers, line wrapping, and a
 prose line's ending, CRLF or LF). A value or code span never reaches across a
@@ -223,8 +224,9 @@ BOUND_WORDS = (
 # is >= 5, the same bound as at least 5. Every comparison but = is a bound, != included,
 # so turning = into != (or < into >) fails whatever word stands before it.
 BOUNDED = r"((?:[+−-]?[$€£¥₹]\s?)?" + NUM + r")"
-# A tilde of ~~strikethrough~~ is not "about".
-OPERATORS = r">=|<=|!=|&gt;=|&lt;=|&ge;|&le;|&ne;|&gt;|&lt;|[<>≤≥≈≠]|(?<!~)~(?!~)"
+# A tilde of ~~strikethrough~~ is not "about". A version pin (== 1.2.3, ~= 3.10,
+# ~> 1.2, ^1.2.3) is a bound of its own kind, so ~> is not read as >.
+OPERATORS = r"==|~=|~>|\^|>=|<=|!=|&gt;=|&lt;=|&ge;|&le;|&ne;|&gt;|&lt;|[<>≤≥≈≠]|(?<!~)~(?!~)"
 
 
 def bound_on(value, operators):
@@ -240,7 +242,7 @@ def bound_on(value, operators):
 BOUND = bound_on(BOUNDED, OPERATORS)
 # A version constraint (>= 2.4.0-beta, at least v2.4, ^1.2.3-rc.1) is read with its
 # version, before versions leave the text.
-VERSION_BOUND = bound_on("(" + VERSION.pattern + ")", r"==|~=|~>|\^|=|" + OPERATORS)
+VERSION_BOUND = bound_on("(" + VERSION.pattern + ")", OPERATORS + "|=")
 NEGATED = {">": "<=", "<": ">=", ">=": "<", "<=": ">"}
 BOUND_CLASS = {
     "more than": ">", "greater than": ">", "over": ">", "above": ">", "exceeding": ">",
@@ -272,9 +274,10 @@ DIMENSION = re.compile(
     r"(?:([A-Za-zµ°%]+" + POWER + DENOMINATOR + r")"
     r"|(?:(?=\s)" + GAP + r"|-(?!x\b))((?:" + UNITS + r")" + POWER + DENOMINATOR + r")(?!\w))?(?!\w)"
 )
-# A multiplication sign between two numbers, spaced or not (10 x 20, 10x20); the
-# first is a whole number, so a name ending in a digit (a1 x 2) keeps its spaces.
-SPACED_TIMES = re.compile(r"(?<![\w.])(\d+(?:[.,]\d+)*) ?([xX×]) ?(?=\d)")
+# A chain of numbers joined by multiplication signs, spaced or not (10 x 20,
+# 2x3 x 4, 10x20 x30), read as one dimension; it starts at a whole number that is
+# not hex, so a name ending in a digit (a1 x 2) and 0x10 x 2 keep their spaces.
+TIMES_CHAIN = re.compile(r"(?<![\w.])(?!0[xX][0-9A-Fa-f])\d+(?:[.,]\d+)*(?: ?[xX×] ?\d+(?:[.,]\d+)*)+")
 # A hex literal (0x4601, -0x10) is one number with its sign, compared as written,
 # and so is a number with its percent sign, multiplier or magnitude, spaced or
 # not (5%, 5 %, 5x, 50K, 3 bn), as for prices.
@@ -664,7 +667,7 @@ def extract(text):
     # Spaces around a multiplication sign or a range's dash are spacing too:
     # 10 x 20 cm is the dimension 10x20 cm, and 1 -3 ms is the range 1-3 ms,
     # whose 3 is not negative.
-    body = SPACED_TIMES.sub(r"\1\2", body)
+    body = TIMES_CHAIN.sub(lambda m: m.group(0).replace(" ", ""), body)
     body = RANGE.sub(lambda m: re.sub(r"\s", "", m.group(0)), body)
     after = list(CURRENCY_AFTER.finditer(body))
     taken = {m.start(4) for m in after}  # a symbol read with the amount before it
