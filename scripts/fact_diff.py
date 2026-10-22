@@ -16,7 +16,8 @@ What it guarantees. A strict difference prints FAIL and exits 1:
   (-20, −5.3, .05, 1e-3, -0x10, 5 %, 5x, 50K, 3 bn), dimensions
   (1920x1080px, 10 x 20 cm), versions (v2.1, 2.4.0-beta), numbers with
   units and rates (36 MB, 5 A, 100 Mbps, 5 percent, a 5-minute timeout,
-  30 km/h, 5 kg / m³, 5 mg/kg/day), tolerances (±5 mm, 5±2 mm), prices
+  30 km/h, 100 requests/s, 5 kg / m³, 5 mg/kg/day), tolerances (±5 mm,
+  5±2 mm), prices
   (-$14, $15/hr, 50 €, 50 M€), labelled values (p = 0.003, OR = 2), ranges
   (2019-2021, 1 - 3 ms), bounds and comparisons (over 40,000, not over
   40,000, just over 40,000, about 36, up to 30, <= 5, != 3), and version
@@ -174,6 +175,7 @@ VERSION = re.compile(
 UNITS = (
     r"%|‰|°[CF]?|x|ms|µs|us|ns|s|sec|secs|min|mins|h|hr|hrs|KB|kB|MB|GB|TB|PB|Kb|Mb|Gb|"
     r"KiB|MiB|GiB|TiB|bps|kbps|Kbps|Mbps|Gbps|Hz|kHz|MHz|GHz|Msps|ksps|fps|px|pt|dB|dBm|"
+    r"kbit|Kbit|Mbit|Gbit|Tbit|"
     r"nm|µm|um|mm|cm|m|km|g|kg|mg|lb|lbs|oz|mi|ft|yd|mph|kph|gal|mL|ml|µL|uL|(?<=\s)L|"
     r"V|mV|kV|(?<=\s)A|mA|µA|kA|Ah|mAh|W|mW|kW|MW|GW|VA|kVA|Wh|mWh|kWh|MWh|Ω|kΩ|MΩ|"
     r"µF|uF|nF|pF|mH|µH|(?<=\s)N|kN|Nm|Pa|hPa|kPa|MPa|GPa|bar|mbar|psi|mmHg|(?<=\s)J|kJ|MJ|"
@@ -239,6 +241,14 @@ CURRENCY_AFTER = re.compile(
 # but not x, which after a hyphen is a variable (255-x), not a multiplier.
 QUANTITY = re.compile(
     r"(?<![\w.])(" + NUM + r")(?:" + GAP + r"|-(?!x\b))((?:" + UNITS + r")" + POWER + DENOMINATOR + r")(?![\w])"
+)
+# A count over a unit is a rate as well (100 requests/s, 1,470 windows / s,
+# 8GT/s), so its count, unit and denominator are compared as one value. The
+# slash must lead to a unit: one between two words joins a pair, not a rate
+# (125 add/add conflicts, 72 card/doc pairs).
+COUNT_RATE = re.compile(
+    r"(?<![\w.])(" + NUM + r")[^\S\n]?([^\W\d_]{2,}[^\S\n]?/[^\S\n]?(?:" + UNITS.replace("(?<=\\s)", "") + r")"
+    + POWER + r"(?!\w)" + DENOMINATOR + r")(?![\w$€£¥₹])"
 )
 # A period after a range ends the sentence unless a digit follows (0.05–0.5.).
 # A range may wrap around an en or em dash (5\n–10), but a hyphen stays on the
@@ -732,8 +742,11 @@ def extract(text):
                                  if m.start(1) not in taken)
                          + Counter(m.group(1) + m.group(4) + m.group(2) + re.sub(r"\s", "", m.group(3) + m.group(5))
                                    for m in after))
-    facts["quantities"] = Counter(re.sub(r"\s", "", m.group(1)) + " " + m.group(2).replace(" ", "")
-                                  for m in QUANTITY.finditer(body))
+    quantities = list(QUANTITY.finditer(body))
+    starts = {m.start() for m in quantities}  # a unit rate (30 km/h) is read once, as a quantity
+    facts["quantities"] = (Counter(re.sub(r"\s", "", m.group(1)) + " " + m.group(2).replace(" ", "") for m in quantities)
+                           + Counter(re.sub(r"\s", "", m.group(1)) + " " + re.sub(r"\s", "", m.group(2))
+                                     for m in COUNT_RATE.finditer(body) if m.start() not in starts))
     # The operator and value are always compared (as bounds); the word before the
     # operator is compared too when it is a label: a letter (I = 5 A), a symbol in
     # capitals (OR = 2), or a word that is not a function word (latency < 5). A
