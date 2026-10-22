@@ -179,21 +179,23 @@ UNITS = (
 # number, so -20 -> 20 is a changed value. The lookbehinds below keep the hyphen
 # in a range or date (2019-2021) from being read as a sign. A leading-dot decimal
 # (.05) and an exponent (1.5e3, 1e-3) are part of the number.
-NUM = r"[+−-]?(?:\d+(?:[.,]\d+)*|\.\d+)(?:[eE][+−-]?\d+)?"
+# A sign: plus, hyphen-minus, Unicode minus, or plus-minus (±5 mm, ∓0.2).
+SIGN = "[+−±∓-]"
+NUM = SIGN + r"?(?:\d+(?:[.,]\d+)*|\.\d+)(?:[eE][+−-]?\d+)?"
 # A unit keeps its power, written as a superscript, after ^, or as a bare 2 or 3
 # (5 kg/m³, 5 m^2, 5 kg/m2), so a changed power or denominator is caught; x and
 # % take no digit power, so 0x4601 and 90x128 are not quantities.
 POWER = r"(?:[⁰¹²³⁴⁵⁶⁷⁸⁹⁻]+|(?<![x%])(?:\^-?[0-9]+|[23](?![0-9])))?"
-# A rate's denominator, with its power: written onto the slash (kg/m³, $15/user),
-# or after a spaced slash when it is a unit (5 kg / m³ is 5 kg/m³). A spaced
-# slash before any other word separates two values (1.3 ms / overall 1.5 ms).
 # A unit written onto its number or slash: letters in any script (kg, µF, Ω) or a sign.
 UNIT_CHARS = r"(?:[^\W\d_]|[%°‰])+"
-DENOMINATOR = (r"(?:/" + UNIT_CHARS + POWER + r"|(?: /|/ ) ?(?:" + UNITS + r")" + POWER + r"(?!\w))?")
+# A rate's denominator, with its power, spaced or not (kg/m³, $15 / user, 5 MB/秒).
+# A word after the slash that starts a new value is not one: the slash then
+# separates two values (1.3 ms / overall 1.5 ms).
+DENOMINATOR = (r"(?:[^\S\n]?/[^\S\n]?" + UNIT_CHARS + POWER + r"(?!\w)(?![^\S\n]*" + SIGN + r"?\.?\d))?")
 # A sign before the symbol (-$14) is kept, but not a range's hyphen ($10-$20),
 # and so is a rate with its power ($15/hr, $15/m²), as for units.
 CURRENCY = re.compile(
-    r"(?:(?<![\w$€£¥₹])[+−-])?([$€£¥₹])\s?" + NUM + r"(?:\s?(?:k|K|m|M|bn|B)\b)?" + DENOMINATOR
+    r"(?:(?<![\w$€£¥₹])" + SIGN + r")?([$€£¥₹])\s?" + NUM + r"(?:\s?(?:k|K|m|M|bn|B)\b)?" + DENOMINATOR
 )
 # A symbol may follow its amount (50 €, 50 M€, 50 €/hr), and is then compared as
 # if it came first (€50, €50M, €50/hr). A symbol belongs to the amount written
@@ -201,8 +203,8 @@ CURRENCY = re.compile(
 # else to an amount after it ($ 50).
 CURRENCY_AFTER = re.compile(
     # The amount may end a multiplication chain (3x50 €, 3 x 50 €: 3 times €50).
-    r"(?:(?<![\w.$€£¥₹])|(?<=\d[xX×]))([+−-]?)((?:\d+(?:[.,]\d+)*|\.\d+))((?:[^\S\n]?(?:k|K|m|M|bn|B))?)" + GAP
-    + r"([$€£¥₹])(?![$€£¥₹]|[+−-]?\.?\d)(" + DENOMINATOR + r")(?!\w)"
+    r"(?:(?<![\w.$€£¥₹])|(?<=\d[xX×]))(" + SIGN + r"?)((?:\d+(?:[.,]\d+)*|\.\d+))((?:[^\S\n]?(?:k|K|m|M|bn|B))?)" + GAP
+    + r"([$€£¥₹])(?![$€£¥₹]|" + SIGN + r"?\.?\d)(" + DENOMINATOR + r")(?!\w)"
 )
 # A rate keeps its denominator, so 30 km/h -> 30 km is a changed unit, and a
 # denominator that cannot be read still leaves the number and base unit
@@ -226,7 +228,7 @@ BOUND_WORDS = (
 # on a price, signed or not (under €500, > $40, under -$40). A negated phrase is read whole: no less than 5
 # is >= 5, the same bound as at least 5. Every comparison but = is a bound, != included,
 # so turning = into != (or < into >) fails whatever word stands before it.
-BOUNDED = r"((?:[+−-]?[$€£¥₹]\s?)?" + NUM + r")"
+BOUNDED = r"((?:" + SIGN + r"?[$€£¥₹]\s?)?" + NUM + r")"
 # A tilde of ~~strikethrough~~ is not "about". A version pin (== 1.2.3, ~= 3.10,
 # ~> 1.2, ^1.2.3) is a bound of its own kind, so ~> is not read as >.
 OPERATORS = r"==|~=|~>|\^|>=|<=|!=|&gt;=|&lt;=|&ge;|&le;|&ne;|&gt;|&lt;|[<>≤≥≈≠]|(?<!~)~(?!~)"
@@ -273,7 +275,7 @@ LABEL_OPERATOR = {"≥": ">=", "&gt;=": ">=", "&ge;": ">=", "≤": "<=", "&lt;="
 # 1920x1080px, 1.5x2.5cm, 3x4m², 10x20 cm, 10x20-cm, 10x20 kg/m²); 0x4601 is
 # hex, not 0 by 4601.
 DIMENSION = re.compile(
-    r"(?<![\w.])([+−-]?(?!0[xX])\d+(?:\.\d+)?(?:[xX×]\d+(?:\.\d+)?)+)"
+    r"(?<![\w.])(" + SIGN + r"?(?!0[xX])\d+(?:\.\d+)?(?:[xX×]\d+(?:\.\d+)?)+)"
     r"(?:(" + UNIT_CHARS + POWER + DENOMINATOR + r")"
     r"|(?:(?=\s)" + GAP + r"|-(?!x\b))((?:" + UNITS + r")" + POWER + DENOMINATOR + r")(?!\w))?(?!\w)"
 )
@@ -284,7 +286,7 @@ TIMES_CHAIN = re.compile(r"(?<![\w.])(?!0[xX][0-9A-Fa-f])\d+(?:[.,]\d+)*(?: ?[xX
 # A hex literal (0x4601, -0x10) is one number with its sign, compared as written,
 # and so is a number with its percent sign, multiplier or magnitude, spaced or
 # not (5%, 5 %, 5x, 50K, 3 bn), as for prices.
-NUMBER = re.compile(r"(?<![\w.])(?:[+−-]?0[xX][0-9A-Fa-f]+\b|" + NUM + r"(?:\s?(?:%|(?:x|k|K|M|bn|B)\b))?)")
+NUMBER = re.compile(r"(?<![\w.])(?:" + SIGN + r"?0[xX][0-9A-Fa-f]+\b|" + NUM + r"(?:\s?(?:%|(?:x|k|K|M|bn|B)\b))?)")
 # Bold and italic are removed where a marker run opens and the same run closes
 # it within a paragraph, as Markdown reads them: an asterisk pair may touch a
 # word (**5**kg), an underscore pair may not (timeout_, IRDN_RAN). Where removing
@@ -549,6 +551,11 @@ def link_target(url):
     return url
 
 
+def unmask(text, masked):
+    """Put masked spans back: a backtick in a link target is part of the URL."""
+    return MASKED.sub(lambda s: masked[s.group(0)], text)
+
+
 def split_link_targets(text, masked):
     """Return the Markdown link targets, and the text with them masked."""
     targets, kept, pos = Counter(), [], 0
@@ -561,8 +568,9 @@ def split_link_targets(text, masked):
         else:
             target = link_target(run) if m.group(1) else run
         if target:
-            targets[target[1:-1] if target.startswith("<") else target] += 1
-            kept += [text[pos:start], mask(target, masked)]
+            full = unmask(target, masked)
+            targets[full[1:-1] if full.startswith("<") else full] += 1
+            kept += [text[pos:start], mask(full, masked)]
             pos = start + len(target)
         m = LINK_TARGET.search(text, max(start + len(target), m.start() + 1))
     kept.append(text[pos:])
@@ -582,9 +590,10 @@ def strip_protected(text):
     urls, body = split_link_targets(body, masked)
 
     def destination(m, span):
-        """Count a destination and mask it."""
-        urls[span] += 1
-        return m.group(0).replace(span, mask(span, masked), 1)
+        """Count a destination as written, code spans in it restored, and mask it."""
+        full = unmask(span, masked)
+        urls[full] += 1
+        return m.group(0).replace(span, mask(full, masked), 1)
     body = AUTOLINK.sub(lambda m: destination(m, m.group(1)), body)
     # A bare URL outside a link: the search resumes where each URL ends, so text
     # trimmed from its end is searched again. A URL stops at an inline-code
