@@ -10,8 +10,9 @@ What it guarantees. A strict difference prints FAIL and exits 1:
   Each is compared by count, so a repeated span that changes or goes is caught.
 - Exactly as written: URLs of any scheme, CommonMark autolinks
   (<mailto:a@b.c>), bare email addresses, and Markdown link targets.
-- As values, after spacing is normalised, so rewrapping or respacing never
-  fails: numbers with their signs, percent signs, multipliers and magnitudes
+- As values, after spacing is normalised, so rewrapping or respacing fails
+  only in the two cases named below: numbers with their signs, percent
+  signs, multipliers and magnitudes
   (-20, −5.3, .05, 1e-3, -0x10, 5 %, 5x, 50K, 3 bn), dimensions
   (1920x1080px, 10 x 20 cm), versions (v2.1, 2.4.0-beta), numbers with
   units and rates (36 MB, 5 A, 100 Mbps, 5 percent, a 5-minute timeout,
