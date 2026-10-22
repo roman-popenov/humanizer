@@ -1,5 +1,9 @@
 # Changelog
 
+## 4.5.1
+
+- `scripts/fact_diff.py` now reads zero, thirteen through nineteen, and forty through ninety as number words, so a change to one of them prints a review line. Strict checks and the exit status are unchanged. `SKILL.md` Step 4 and the README name the covered number words.
+
 ## 4.5.0
 
 Rebuilt the skill around one rule: remove the devices that mark text as AI-written, and keep every claim on the same terms. Still 26 patterns, renumbered.

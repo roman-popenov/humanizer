@@ -347,7 +347,8 @@ FUNCTION_WORDS = set(
     "Additionally Furthermore Moreover Notably Importantly Honestly Overall Finally".split()
 )
 NUMBER_WORDS = re.compile(
-    r"\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|twenty|thirty|"
+    r"\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|"
+    r"sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|"
     r"hundred|thousand|million|billion|half|dozen|double|triple|twice|percent|single|both)\b",
     re.I,
 )
