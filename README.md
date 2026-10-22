@@ -146,7 +146,7 @@ The patterns are numbered by strength and frequency. Each pattern has one of two
 - A *defect* is fixed wherever an instance fails its keep-test.
 - A *density* pattern counts only when its own cluster test is met, such as several listed words, more than one connector dash in a paragraph, or triads in a row. A single instance in text that otherwise reads as human stays.
 
-`[W]` marks a pattern documented on Wikipedia's page, checked against the page as of 2026-10-15. `[U]` marks guidance from earlier Humanizer releases that the page does not list. Both tags mean partly each. [references/patterns.md](references/patterns.md) has the full entries, with watch lists, fixes, keep-tests, and examples.
+`[W]` marks a pattern documented on Wikipedia's page, checked against the page as of 2026-10-21. `[U]` marks guidance from earlier Humanizer releases that the page does not list. Both tags mean partly each. [references/patterns.md](references/patterns.md) has the full entries, with watch lists, fixes, keep-tests, and examples.
 
 ### A. Staging instead of stating
 
@@ -182,7 +182,7 @@ The patterns are numbered by strength and frequency. Each pattern has one of two
 | # | Pattern | Kind | Before | After |
 |---|---------|------|--------|-------|
 | P15 | **Dashes as the universal connector** | density [W] | "The new policy — announced without warning — affects thousands" | Use the punctuation that states the relation; keep ranges and the writer's own habit |
-| P16 | **Repeated sentence openings** | density [U] | "She noted... She noted... She filed..." | Merge the sentences or begin with the action |
+| P16 | **Repeated openings and synonym cycling** | density [U, W] | "She noted... She noted... She filed..."; "the dashboard... the interface... the portal" | Merge the sentences or begin with the action; keep one name for one thing |
 | P17 | **Passive hiding a known actor** | density [U] | "It was decided by the board that..." | Name the actor the text gives; never invent one |
 
 ### E. Formatting

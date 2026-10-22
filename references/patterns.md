@@ -2,14 +2,14 @@
 
 Each entry gives what to watch for, why it weakens the text, the fix, and when to keep it. Every fix applies the claim test and the same-terms rule in SKILL.md: a claim stays, with its degree, modality, tense, agent, scope and relationship words; a device (an announcement, a wrapper, a restatement, decoration) goes. No fix expands the writer's abbreviations, shorthand, nicknames or clipped words, or resolves a token with two readings (SKILL.md hard rule 5). The examples illustrate editing decisions. Check every original claim against the rewrite and every rewritten claim against the original: a token-check pass cannot establish that the meaning is the same.
 
-`[W]` = documented on Wikipedia's "Signs of AI writing" (fetched 2026-10-15). `[U]` = from earlier Humanizer releases, not on Wikipedia. Both tags = partly each. *Defect*: fix any instance that fails its keep-test. *Density*: act only when the entry's own cluster test is met.
+`[W]` = documented on Wikipedia's "Signs of AI writing" (fetched 2026-10-21). `[U]` = from earlier Humanizer releases, not on Wikipedia. Both tags = partly each. *Defect*: fix any instance that fails its keep-test. *Density*: act only when the entry's own cluster test is met.
 
 ## Contents
 
 - Staging instead of stating: P1 not X but Y, P2 closers and fragments, P3 sayings, P4 run-ups, P5 arguing with no one
 - Rhythm and hedging: P6 triads, P7 stacked hedges
 - Inflation and borrowed authority: P8 significance, P9 vague connection, P10 -ing riders, P11 sales language, P12 borrowed authority, P13 avoiding is/has, P14 AI vocabulary (with eras)
-- Punctuation and syntax: P15 dashes, P16 repeated openings, P17 passive hiding an actor
+- Punctuation and syntax: P15 dashes, P16 repeated openings and synonym cycling, P17 passive hiding an actor
 - Formatting: P18 bold, P19 headings/emoji/tables, P20 curly quotes
 - Leftovers: P21 chatbot residue, P22 disclaimers, P23 heading restated, P24 writing about the document, P25 wrong reader, P26 placeholders
 - Why these patterns exist
@@ -72,7 +72,7 @@ Each entry gives what to watch for, why it weakens the text, the fix, and when t
 
 ### P4. Staged run-ups (defect) [U, W]
 
-**Watch for:** Let's dive in, let's explore, let's break this down, here's what you need to know, now let's look at, without further ado, heads up, quick note; staged candor as a standalone opener: Honestly?, Look, Here's the thing, The thing is, Let's be honest, Real talk; time skips and recap markers that announce a move instead of making it (Flash forward, Cut to, To sum up); one- or two-word set-up questions before the answer (The result?, Why?); references and recaps that announce instead of stating (As we discussed, As mentioned above, To summarize, I am writing to); a claim-free announcement of what follows ("Here's how it works.", "Here is the list:"); sentence-initial transitions that add no relation: Additionally, Moreover, Furthermore, Notably, Importantly (Wikipedia: older models overused these, and one in isolation is "not a strong tell"); "it's important to note" (a historical sign on Wikipedia).
+**Watch for:** Let's dive in, let's explore, let's break this down, here's what you need to know, now let's look at, without further ado, heads up, quick note; staged candor as a standalone opener: Honestly?, Look, Here's the thing, The thing is, Let's be honest, Real talk; time skips and recap markers that announce a move instead of making it (Flash forward, Cut to, To sum up); one- or two-word set-up questions before the answer (The result?, Why?); references and recaps that announce instead of stating (As we discussed, As mentioned above, To summarize, I am writing to); a claim-free announcement of what follows ("Here's how it works.", "Here is the list:"); sentence-initial transitions that add no relation: Additionally, Moreover, Furthermore, Notably, Importantly (Wikipedia: older models overused these, and one in isolation is "not a strong tell").
 **Why:** the writer announces the point instead of making it.
 **Fix:** delete the announcement and start at the point. An announcing sentence goes when the next sentences say what it promises; if it says something they do not, keep that. A set-up label can carry a ranking ("The biggest lesson?", "Here's the key insight:"): keep the ranking in the sentence ("The biggest lesson was that ..."), since "biggest" and "key" are the writer's judgments. In text you are already editing for tells, cut a sentence opener that adds no relation the sentence needs; keep one that carries a relation (However, So, Because of that). In text that otherwise reads as human, leave single openers alone. "Honestly" or "look" inside a casual sentence is ordinary; the tell is the standalone opener before a routine claim. If the run-up carries a claim (honest admits something), keep the claim. An announcement may contain a feeling, evaluation or claim about change. Preserve that content and what it refers to. "We're thrilled to announce that X" must retain the feeling about announcing X; keep the original clause if no equivalent rewrite is clear. "It wasn't easy" and "Then everything changed" may be cut only when another sentence states the same claim on the same terms. "Moving forward" and "Going forward" set a time frame for the sentence, so they stay.
 
@@ -206,16 +206,16 @@ Apply the preservation rules to every assertion inside inflated wording. Signifi
 
 Wikipedia: "One or two of these words appearing in an edit may be coincidental, but an edit ... introducing lots of them, lots of times, is one of the strongest tells." Act on a cluster. Take the list literally: a word's synonyms are not tells, and literal senses (an *underscore* character, a *key* in a map, *robust* statistics) are not tells.
 
-Wikipedia's list as of 2026-10-15, by era (rough, not hard cutoffs):
+Wikipedia's list as of 2026-10-21, by era (rough, not hard cutoffs):
 
 | era | words |
 |---|---|
-| 2023 to mid-2024 (GPT-4) | Additionally (sentence-initial), boasts, bolstered, crucial, delve, emphasizing, enduring, garner, intricate/intricacies, interplay, key (the page's summary box marks the adjective as needing a citation), landscape (abstract), meticulously, pivotal, underscore (verb), tapestry (abstract), testament, valuable, vibrant |
+| 2023 to mid-2024 (GPT-4) | Additionally (sentence-initial), boasts, bolstered, crucial, delve, emphasizing, enduring, garner, intricate/intricacies, interplay, key, landscape (abstract), meticulously, pivotal, underscore (verb), tapestry (abstract), testament, valuable, vibrant |
 | mid-2024 to mid-2025 (GPT-4o) | align with, bolstered, crucial, emphasizing, enhance, enduring, fostering, highlighting, pivotal, showcasing, underscore, vibrant |
 | mid-2025 to mid-2026 (GPT-5) | emphasizing, enhance, highlighting, showcasing |
 | mid-2026 on (GPT-6) | challenge, clearer, dependable, echoed, foster, leverage, matters, multifaceted, practical, prioritize, quietly, steady, universally |
 
-Also on the page's main list: deep dive, robust, meticulous, highlight (verb), showcase. Wikipedia notes that Grok output overuses "scientific" words (*causal, empirical, correlate*).
+Also on the page's main list: deep dive, robust, meticulous, highlight (verb), showcase. The page cites a single product review for the GPT-6 row; a 2026 study by Graphite, which compared 90,000 model-written articles with 10,000 written before ChatGPT, measured four of its words well above the human rate: *dependable* (59x in GPT-6 Astra), *practical* (26x), *steady* (6x in Claude Opus 5) and *matters* (as in "matters because", 357x in GPT-6 Astra; see P8). Wikipedia notes that Grok output overuses "scientific" words (*causal, empirical, correlate*).
 **Fix:** preserve the degree and kind of every evaluation. Rewrite the surrounding syntax first. Replace a listed word only when the replacement expresses the same judgment at the same strength in this context; otherwise keep the original word. Crucial stays crucial and pivotal stays pivotal: *very important* and *major* are lower degrees, and *essential* claims necessity, a different kind. A lone listed word stays as written, since one word is not a cluster. A listed reporting verb (underscore, highlight, showcase) stays unless a plain verb has the same evidential strength.
 
 > Before: Additionally, a distinctive feature of Somali cuisine is the incorporation of camel meat. An enduring testament to Italian colonial influence is the widespread adoption of pasta in the local culinary landscape, showcasing how these dishes have integrated into the traditional diet.
@@ -226,7 +226,7 @@ Also on the page's main list: deep dive, robust, meticulous, highlight (verb), s
 
 ### P15. Dashes as the universal connector (density) [W]
 
-**Watch for:** em dashes (—) or spaced hyphens (` - `, ` -- `) joining clauses, more than one per paragraph (or several across a short post of one-line paragraphs); and, in text that has other tells, a single dash that pivots between two clauses ("X — it's Y", "X — but Y", "the best of both worlds — Y"). Wikipedia: models use them "in places where humans are more likely to use commas, parentheses, colons", "in a formulaic, pat way", and usually with spaces around them. The 2026-10-15 snapshot files this sign under historical indicators, dated "2022–September 2026", because the newest models have been found to suppress dashes; it also cites a July 2026 study in which, of contemporary models, only Claude used em dashes more than professional writers. So check drafts from that model for it.
+**Watch for:** em dashes (—) or spaced hyphens (` - `, ` -- `) joining clauses, more than one per paragraph (or several across a short post of one-line paragraphs); and, in text that has other tells, a single dash that pivots between two clauses ("X — it's Y", "X — but Y", "the best of both worlds — Y"). Wikipedia: models use them "in places where humans are more likely to use commas, parentheses, colons", "in a formulaic, pat way", and usually with spaces around them. The page files this sign under historical indicators, dated "2022–September 2026", because the newest models have been found to suppress dashes. Graphite's October 2026 measurement agrees: GPT-6 Astra uses em dashes about one eighth as often as human writers, and Claude Opus 5.5 almost never (0.015 per 1,000 words, against 2.92 for Opus 5). A text with no dashes is therefore no evidence either way; act on dashes only where they cluster as connectors.
 **Fix:** replace connector dashes with the punctuation that states how the clauses relate (comma, colon, parentheses, full stop), or rewrite the sentence. Choose punctuation for the relationship between clauses and the writer's conventions; impose no punctuation or sentence-length quota.
 **Keep:** en dashes in ranges (2019–2021, pp. 12–15) and compound names; a single dash in text that otherwise reads as human; dashes in code, commands, paths and URLs; the writer's dashes when their sample or the rest of their text uses them.
 
@@ -237,11 +237,11 @@ Also on the page's main list: deep dive, robust, meticulous, highlight (verb), s
 > After: The update does not change the file format, but it does change the load order.
 > (Every word stays; the comma states the contrast the dash staged.)
 
-### P16. Repeated sentence openings (density) [U]
+### P16. Repeated openings and synonym cycling (density) [U, W]
 
-**Watch for:** three or more sentences in a row starting with the same subject, often *she* or *he*. This comes from earlier Humanizer releases, not from Wikipedia.
-**Fix:** merge sentences or begin with the action. Do not ban the word; a remaining sentence may still start with it.
-**Keep when:** the repetition is rhythm on purpose ("She came. She saw. She conquered.").
+**Watch for:** three or more sentences in a row starting with the same subject, often *she* or *he* (from earlier Humanizer releases, not from Wikipedia; repeated openings are common in human writing too, so act only on a run of them). And the opposite habit: one thing renamed in each sentence to avoid repeating a word ("the dashboard ... the interface ... the portal ... the analytics hub"). Wikipedia files this "elegant variation" as a historical sign, from a repetition penalty in older models, and Graphite's 2026 study found model-written articles use a wider vocabulary than human ones.
+**Fix:** for openings, merge sentences or begin with the action; do not ban the word, and a remaining sentence may still start with it. For synonym cycling, keep one name for one thing, the writer's first or most specific one.
+**Keep when:** the repetition is rhythm on purpose ("She came. She saw. She conquered."), or the different names are different things.
 
 > Before: She noted the door. She noted the lock on it. She filed both away.
 > After: She noted the door and its lock, then filed both away.
@@ -249,6 +249,7 @@ Also on the page's main list: deep dive, robust, meticulous, highlight (verb), s
 ### P17. Passive hiding a known actor (density) [U]
 
 **Watch for:** passive verbs or subjectless fragments where the text elsewhere says who acts.
+**Why:** this is a clarity edit, not evidence of AI writing on its own: in a 2025 study (Reinhart et al., PNAS), GPT-4o used the agentless passive at half the human rate. Act on it in text you are already editing for other tells.
 **Fix:** name the actor the text gives. If the text never says who, keep the passive; inventing an actor ("the system", "we") breaks hard rule 2.
 
 > Before: It was decided by the board that the release would be delayed.
@@ -310,7 +311,7 @@ Also on the page's main list: deep dive, robust, meticulous, highlight (verb), s
 
 ### P22. Source and knowledge disclaimers (defect) [W]
 
-**Watch for:** while specific details are limited or scarce, not widely available, documented or disclosed, in the provided or available sources, based on available information, maintains a low profile, keeps personal details private, likely [grew up, studied, began], it is believed that; source-usage hedges: "[claim] should be treated as ... rather than ...", "does not by itself establish" (keep their modality: *should be treated as* is advice, not a statement). Wikipedia lists source-availability hedges among the most common signs as of October 2026 and calls the guess that follows them speculative, "including the very claim that it's 'not documented'". Cutoff phrases ("as of my last knowledge update", "up to my last training update") are historical (2022-2023) but still appear in pasted text.
+**Watch for:** while specific details are limited or scarce, not widely available, documented or disclosed, in the provided or available sources, based on available information, maintains a low profile, keeps personal details private, likely [grew up, studied, began], it is believed that; source-usage hedges: "[claim] should be treated as ... rather than ...", "does not by itself establish" (keep their modality: *should be treated as* is advice, not a statement). Wikipedia lists source-availability hedges among the most common signs as of October 2026 and calls the guess that follows them speculative, "including the very claim that it's 'not documented'". Cutoff phrases ("as of my last knowledge update", "up to my last training update") are historical (2022-2023) but still appear in pasted text, and so is the didactic "it's important (or critical) to note / remember", which the page files as the 2023-24 era of these disclaimers.
 **Why:** a model that found no source fills the gap with a claim about sources and a guess about the subject.
 **Fix:** a style edit cannot verify these, so do not resolve them. Keep each claim and its hedge at its strength (reword only the stock phrasing), and list every unverified claim in the note so the writer can check or cut it. Cut them only when the user asks.
 
