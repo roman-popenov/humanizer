@@ -187,7 +187,9 @@ POWER = r"(?:[⁰¹²³⁴⁵⁶⁷⁸⁹⁻]+|(?<![x%])(?:\^-?[0-9]+|[23](?![0-
 # A rate's denominator, with its power: written onto the slash (kg/m³, $15/user),
 # or after a spaced slash when it is a unit (5 kg / m³ is 5 kg/m³). A spaced
 # slash before any other word separates two values (1.3 ms / overall 1.5 ms).
-DENOMINATOR = (r"(?:/[A-Za-zµ°%]+" + POWER + r"|(?: /|/ ) ?(?:" + UNITS + r")" + POWER + r"(?!\w))?")
+# A unit written onto its number or slash: letters in any script (kg, µF, Ω) or a sign.
+UNIT_CHARS = r"(?:[^\W\d_]|[%°‰])+"
+DENOMINATOR = (r"(?:/" + UNIT_CHARS + POWER + r"|(?: /|/ ) ?(?:" + UNITS + r")" + POWER + r"(?!\w))?")
 # A sign before the symbol (-$14) is kept, but not a range's hyphen ($10-$20),
 # and so is a rate with its power ($15/hr, $15/m²), as for units.
 CURRENCY = re.compile(
@@ -198,7 +200,8 @@ CURRENCY = re.compile(
 # onto it after it (5 $20), else to an amount before it (50 € 2 nights is €50),
 # else to an amount after it ($ 50).
 CURRENCY_AFTER = re.compile(
-    r"(?<![\w.$€£¥₹])([+−-]?)((?:\d+(?:[.,]\d+)*|\.\d+))((?:[^\S\n]?(?:k|K|m|M|bn|B))?)" + GAP
+    # The amount may end a multiplication chain (3x50 €, 3 x 50 €: 3 times €50).
+    r"(?:(?<![\w.$€£¥₹])|(?<=\d[xX×]))([+−-]?)((?:\d+(?:[.,]\d+)*|\.\d+))((?:[^\S\n]?(?:k|K|m|M|bn|B))?)" + GAP
     + r"([$€£¥₹])(?![$€£¥₹]|[+−-]?\.?\d)(" + DENOMINATOR + r")(?!\w)"
 )
 # A rate keeps its denominator, so 30 km/h -> 30 km is a changed unit, and a
@@ -271,7 +274,7 @@ LABEL_OPERATOR = {"≥": ">=", "&gt;=": ">=", "&ge;": ">=", "≤": "<=", "&lt;="
 # hex, not 0 by 4601.
 DIMENSION = re.compile(
     r"(?<![\w.])([+−-]?(?!0[xX])\d+(?:\.\d+)?(?:[xX×]\d+(?:\.\d+)?)+)"
-    r"(?:([A-Za-zµ°%]+" + POWER + DENOMINATOR + r")"
+    r"(?:(" + UNIT_CHARS + POWER + DENOMINATOR + r")"
     r"|(?:(?=\s)" + GAP + r"|-(?!x\b))((?:" + UNITS + r")" + POWER + DENOMINATOR + r")(?!\w))?(?!\w)"
 )
 # A chain of numbers joined by multiplication signs, spaced or not (10 x 20,
